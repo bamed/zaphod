@@ -6,7 +6,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 
 # Install dependencies
 RUN apt update && apt install -y \
-    python3.10 python3-pip git curl nano wget \
+    python3.10 python3-pip git curl nano wget vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Install basic Python packages

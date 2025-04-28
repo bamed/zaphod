@@ -8,7 +8,7 @@ set -e
 echo "🔎 Searching for the cheapest suitable GPU offer on Vast.ai..."
 
 # Load API key
-CONFIG_FILE="./app/config/config.json"
+CONFIG_FILE="./config/config.json"
 if [ ! -f "$CONFIG_FILE" ]; then
     echo "❌ ERROR: app/config/config.json not found!"
     exit 1

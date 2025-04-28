@@ -1,5 +1,5 @@
 #@author
-#@category MCP
+#@category ZAPHOD
 #@keybinding
 #@menupath
 #@toolbar

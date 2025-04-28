@@ -1,5 +1,5 @@
-#@author
-#@category MCP
+#@author bamed
+#@category ZAPHOD
 #@keybinding
 #@menupath
 #@toolbar
@@ -65,7 +65,7 @@ try:
         response_text = ''.join([chr(b) for b in input_stream.readAllBytes()])
         response_json = json.loads(response_text)
         summary = response_json['summary']
-        currentFunction.setComment(summary)
+        currentFunction.setComment(response_text)
         print("Inserted summary: {}".format(summary))
     else:
         print("Error analyzing function: HTTP {}".format(response_code))
