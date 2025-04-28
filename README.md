@@ -1,6 +1,5 @@
 # ZAPHOD - Zenith of Assisted Program Handling and Objective Decompilation
-
-"Don't Panic. Just Disassemble."
+Because two heads are better than one, especially if they're both me.
 
 Welcome to **ZAPHOD**, your soon-to-be-favorite companion for malware analysis, decompilation, and unraveling the mysteries of obfuscated code, all without losing your towel.
 
