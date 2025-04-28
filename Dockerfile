@@ -1,25 +1,39 @@
-### Dockerfile
-# Use a small but capable image
-FROM python:3.10-slim
+# Start from an official lightweight CUDA image
+FROM nvidia/cuda:12.1.1-runtime-ubuntu22.04
 
-# Install required system packages
-RUN apt update && apt install -y git gcc g++ curl && rm -rf /var/lib/apt/lists/*
+# Environment setup
+ENV DEBIAN_FRONTEND=noninteractive
 
-# Set workdir
+# Install dependencies
+RUN apt update && apt install -y \
+    python3.10 python3-pip git curl nano wget \
+    && rm -rf /var/lib/apt/lists/*
+
+# Install basic Python packages
+RUN pip3 install --upgrade pip
+
+# Install Hugging Face libraries
+RUN pip3 install --no-cache-dir \
+    torch==2.2.2+cu121 torchvision==0.17.2+cu121 torchaudio==2.2.2+cu121 --index-url https://download.pytorch.org/whl/cu121 
+
+RUN pip3 install --no-cache-dir transformers accelerate fastapi uvicorn 
+
+# Create app directory
 WORKDIR /app
 
-# Copy requirements if separated (optional)
-# COPY requirements.txt ./
-# RUN pip install -r requirements.txt
+# Copy local files into the container
+COPY requirements.txt .
 
-# Install necessary Python packages
-RUN pip install --no-cache-dir fastapi uvicorn transformers accelerate torch
+RUN pip3 install --no-cache-dir -r requirements.txt
 
-# Copy the codebase
 COPY . .
 
-# Expose port
+# Set model cache directory (you can change this if needed)
+ENV HF_HOME=/app/model_cache
+RUN mkdir -p $HF_HOME
+
+# Expose port for FastAPI
 EXPOSE 8000
 
-# Run the server
+# Start the server
 CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]

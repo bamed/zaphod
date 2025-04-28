@@ -1,11 +1,7 @@
 import os
 import json
-import logging
+import torch
 from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, logging as hf_logging
-
-# Setup logging
-logging.basicConfig(level=logging.INFO)
-hf_logging.set_verbosity_info()
 
 # Load Hugging Face token securely
 HF_TOKEN = None
@@ -20,103 +16,52 @@ if os.path.exists(config_path):
 else:
     print("[Config Warning] config/config.json not found. Hugging Face token will not be used.")
 
+# Optional: Silence model warnings
+hf_logging.set_verbosity_error()
+
 class ModelRegistry:
     def __init__(self):
         self.models = {}
 
     def load_model(self, name, model_id):
-        print(f"Loading model {name} from {model_id}...")
+        print(f"🔍 Loading model '{name}' from '{model_id}'...")
         try:
-            # Shared load settings
-            load_kwargs = {
+            model_args = {
                 "trust_remote_code": True,
-                "cache_dir": "./model_cache",
-                "offload_folder": "./offload",
-                "use_safetensors": True,
-                "device_map": "auto",
+                "torch_dtype": torch.float16,
+                "device_map": "auto",  # Automatically fit the model onto available GPU
             }
-            # Determine if local or remote
-            is_local = os.path.isdir(model_id)
-            
+            tokenizer_args = {
+                "trust_remote_code": True,
+            }
+            pipeline_args = {
+                "task": "text-generation",
+                #"device": 0,
+                "max_new_tokens": 512,
+            }
 
-            if is_local:
-                files = os.listdir(model_id)
-                if not any(f.endswith(('.safetensors', '.bin')) for f in files):
-                    raise FileNotFoundError(
-                        f"No model.safetensors or pytorch_model.bin found in {model_id}."
-                    )
+            if HF_TOKEN:
+                model_args["token"] = HF_TOKEN
+                tokenizer_args["token"] = HF_TOKEN
 
-                model = AutoModelForCausalLM.from_pretrained(
-                    model_id,
-                    trust_remote_code=True,
-                    token=HF_TOKEN if not is_local else None,
-                )
-                tokenizer = AutoTokenizer.from_pretrained(model_id, **load_kwargs)
-                model = AutoModelForCausalLM.from_pretrained(model_id, **load_kwargs)
-                
-                pipe = pipeline(
-                    "text-generation",
-                    model=model,
-                    tokenizer=tokenizer,
-                    device=0,  # CUDA
-                )
-                self.models[name] = pipe
-                print(f"Model {name} loaded successfully.")
-                
+            if os.path.isdir(model_id):
+                # Local model
+                model = AutoModelForCausalLM.from_pretrained(model_id, **model_args)
+                tokenizer = AutoTokenizer.from_pretrained(model_id, **tokenizer_args)
             else:
-                # Remote from Hugging Face
-                tokenizer = AutoTokenizer.from_pretrained(model_id, token=HF_TOKEN, **load_kwargs)
-                model = AutoModelForCausalLM.from_pretrained(model_id, token=HF_TOKEN, **load_kwargs)
+                # Download from HuggingFace
+                model = AutoModelForCausalLM.from_pretrained(model_id, **model_args)
+                tokenizer = AutoTokenizer.from_pretrained(model_id, **tokenizer_args)
 
             pipe = pipeline(
-                "text-generation",
+                **pipeline_args,
                 model=model,
-                tokenizer=tokenizer,
-                device=0,  # CUDA
+                tokenizer=tokenizer
             )
             self.models[name] = pipe
-            print(f"Model {name} loaded successfully.")
-
+            print(f"✅ Model '{name}' loaded successfully.")
         except Exception as e:
-            print(f"Error loading {name}: {e}")
-        
-
-            # Extra: If local, check if model.safetensors or pytorch_model.bin exists
-            if is_local:
-                files = os.listdir(model_id)
-                if not any(f.endswith(('.safetensors', '.bin')) for f in files):
-                    raise FileNotFoundError(
-                        f"No model.safetensors or pytorch_model.bin found in {model_id}."
-                    )
-
-            model = AutoModelForCausalLM.from_pretrained(
-                model_id,
-                trust_remote_code=True,
-                token=HF_TOKEN if not is_local else None,
-            )
-            tokenizer = AutoTokenizer.from_pretrained(
-                model_id,
-                trust_remote_code=True,
-                token=HF_TOKEN if not is_local else None,
-            )
-
-            pipe = pipeline(
-                "text-generation",
-                model=model,
-                tokenizer=tokenizer,
-                device=0,  # CUDA
-            )
-            self.models[name] = pipe
-            print(f"Model {name} loaded successfully.")
-
-        except Exception as e:
-            print(f"Error loading {name}: {e}")
-
-    def list_models(self):
-        return list(self.models.keys())
-
-
-
+            print(f"❌ Error loading '{name}': {e}")
 
     def list_models(self):
         return list(self.models.keys())

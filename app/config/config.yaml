@@ -1,3 +1,0 @@
-models:
-  - name: phi2
-    model_id: microsoft/phi-2

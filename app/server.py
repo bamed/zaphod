@@ -9,7 +9,7 @@ registry = ModelRegistry()
 
 # Config: Which models to load at startup
 models_to_load = {
-    "default": "deepseek-ai/deepseek-coder-1.3b-instruct"  # Smallish, works on 4GB VRAM
+    "default": "mistralai/Mistral-7B-Instruct-v0.3"
 }
 
 for name, model_id in models_to_load.items():

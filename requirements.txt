@@ -1,6 +1,13 @@
+numpy<2
+protobuf
+sentencepiece
+auto-gptq
+bitsandbytes
+torch==2.2.2+cu121
+torchvision==0.17.2+cu121
+torchaudio==2.2.2+cu121
+transformers
+accelerate
 fastapi
 uvicorn
-transformers
-torch
-accelerate
-pydantic
+optimum

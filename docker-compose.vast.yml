@@ -1,0 +1,18 @@
+version: '3.8'
+services:
+  zaphod:
+    image: bamed/zaphod:latest
+    ports:
+      - "8000:8000"
+    volumes:
+      - /workspace/zaphod:/app       # Mount clean repo
+      - /workspace/config:/app/config # Mount your secrets
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    environment:
+      - TRANSFORMERS_CACHE=/workspace/cache
