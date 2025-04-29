@@ -76,5 +76,5 @@ echo ""
 
 # Monitor logs for FastAPI
 echo "🔍 You still need to ssh in using the command above to establish the ssh tunnel to Vast."
-echo "Might also want to go grab a cup of tea, or if you're one of the few lucky Hitchikers out there with access to a Nutrimatic Drinks Dispenser, a beverage almost, but not uite, entirely unlike tea, because it will take your instance some time to setup the LLM model on initial boot."
+echo "Might also want to go grab a cup of tea, or if you're one of the few lucky Hitchikers out there with access to a Nutrimatic Drinks Dispenser, a beverage almost, but not quite, entirely unlike tea, because it will take your instance some time to setup the LLM model on initial boot."
 
