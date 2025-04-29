@@ -11,3 +11,4 @@ accelerate
 fastapi
 uvicorn
 optimum
+frida
