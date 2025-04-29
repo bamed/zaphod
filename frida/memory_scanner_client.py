@@ -13,10 +13,10 @@ from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
 PE_MAGIC = b'MZ'
 PYTHON_MAGIC = [b'\x42\x0D\x0D\x0A', b'\x42\x0D\x0D\x0D']
 MAX_PROMPT_LENGTH = 5000
-JSON_REGEX = r'\{(?:[^{}]|(?R))*\}'  # Recursive regex to find JSON
+JSON_REGEX = r'\{(?:[^{}]|(?R))*\}'
 LOG_FILE = "scan.log"
 
-# === SMART STRING PATTERNS ===
+# SMART STRING PATTERNS
 IP_REGEX = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
 DOMAIN_REGEX = r'\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
 EMAIL_REGEX = r'\b[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
@@ -36,7 +36,6 @@ def detect_python_bytecode(data):
     return [i for i in range(len(data) - 3) if data[i:i+4] in PYTHON_MAGIC]
 
 def string_entropy(s):
-    """Calculate entropy of a single string."""
     if not s:
         return 0
     probs = [float(s.count(c)) / len(s) for c in set(s)]
@@ -60,31 +59,6 @@ def smart_extract_strings(data, min_len=5):
                         extracted.add(s)
     return list(extracted)
 
-
-    for s in candidates:
-        s = s.strip()
-        if len(s) >= min_len:
-            if re.match(IP_REGEX, s) or re.match(DOMAIN_REGEX, s) or re.match(EMAIL_REGEX, s) or re.match(FUNCNAME_REGEX, s):
-                extracted.add(s)
-    return list(extracted)
-
-def disassemble_pe(data, arch='x86'):
-    md = Cs(CS_ARCH_X86, CS_MODE_32 if arch == 'x86' else CS_MODE_64)
-    try:
-        disasm = []
-        for i in md.disasm(data, 0x1000):
-            disasm.append(f"0x{i.address:x}:\t{i.mnemonic}\t{i.op_str}")
-        return disasm
-    except Exception as e:
-        return [f"Disassembly error: {e}"]
-
-def try_unmarshal_python(data):
-    try:
-        obj = marshal.loads(data)
-        return str(obj)
-    except Exception as e:
-        return f"Failed to unmarshal: {e}"
-
 def extract_json_blocks(text):
     matches = re.findall(JSON_REGEX, text, re.DOTALL)
     return matches[-1] if matches else None
@@ -94,8 +68,33 @@ def log_message(message):
     with open(LOG_FILE, "a") as f:
         f.write(f"[{timestamp}] {message}\n")
 
+def pseudo_decompile(data):
+    """Try to pseudo-decompile code into C-like functions."""
+    md = Cs(CS_ARCH_X86, CS_MODE_32)
+    md.detail = True
+    lines = []
+    func_started = False
+
+    try:
+        for i in md.disasm(data, 0x1000):
+            if not func_started and i.mnemonic == 'push' and i.op_str == 'ebp':
+                lines.append(f"int sub_{hex(i.address)}() {{")
+                func_started = True
+            elif func_started and i.mnemonic == 'mov' and i.op_str == 'ebp, esp':
+                continue
+            elif func_started and i.mnemonic == 'ret':
+                lines.append("  return;")
+                lines.append("}")
+                break
+            elif func_started:
+                # Very basic pseudo-instruction
+                lines.append(f"  {i.mnemonic} {i.op_str};")
+        return "\n".join(lines) if func_started else None
+    except Exception as e:
+        return None
+
 # === FILE SCAN ===
-def scan_file(filepath):
+def scan_file(filepath, decompile_mode=False):
     findings = {
         "pe_offsets": [],
         "python_offsets": [],
@@ -121,26 +120,26 @@ def scan_file(filepath):
     if pe_offsets:
         findings['pe_offsets'] = [hex(off) for off in pe_offsets]
         findings['needs_llm'] = True
-        findings['llm_payload'] += f"PE header(s) found at {findings['pe_offsets']}\n"
-        disasm_preview = disassemble_pe(data[:4096])
-        findings['llm_payload'] += "\nDisassembly Preview:\n" + "\n".join(disasm_preview[:20])
-        findings['detection_log'] += f"PE headers found at: {findings['pe_offsets']}\n"
+        findings['detection_log'] += f"PE headers at: {findings['pe_offsets']}\n"
+        if decompile_mode:
+            pseudo_c = pseudo_decompile(data[:4096])
+            if pseudo_c:
+                findings['llm_payload'] += f"Pseudo-decompiled C function:\n{pseudo_c}\n"
+                findings['detection_log'] += "Pseudo-C decompiled successfully.\n"
+            else:
+                findings['llm_payload'] += f"Disassembly fallback:\n"
+                findings['detection_log'] += "Pseudo-C failed; fallback to disassembly.\n"
     else:
         findings['detection_log'] += "No PE headers found.\n"
 
-    # Python bytecode detection
+    # Python bytecode
     py_offsets = detect_python_bytecode(data)
     if py_offsets:
         findings['python_offsets'] = [hex(off) for off in py_offsets]
         findings['needs_llm'] = True
-        for off in py_offsets:
-            py_obj = try_unmarshal_python(data[off:])
-            findings['llm_payload'] += f"\nPython bytecode at {hex(off)}:\n{py_obj}\n"
-        findings['detection_log'] += f"Python bytecode found at: {findings['python_offsets']}\n"
-    else:
-        findings['detection_log'] += "No Python bytecode found.\n"
+        findings['detection_log'] += f"Python bytecode at: {findings['python_offsets']}\n"
 
-    # Entropy scan
+    # Entropy
     block_size = 512
     entropy_hits = []
     for i in range(0, len(data), block_size):
@@ -150,36 +149,29 @@ def scan_file(filepath):
     if entropy_hits:
         findings['high_entropy_blocks'] = entropy_hits
         findings['needs_llm'] = True
-        findings['llm_payload'] += f"\nHigh-entropy regions at: {entropy_hits}\n"
-        findings['detection_log'] += f"High entropy blocks found at: {entropy_hits}\n"
-    else:
-        findings['detection_log'] += "No high entropy blocks detected.\n"
+        findings['detection_log'] += f"High entropy blocks: {entropy_hits}\n"
 
-    # Smart string extraction
+    # Strings
     smart_strings = smart_extract_strings(data)
     if smart_strings:
         findings['smart_strings'] = smart_strings[:10]
         findings['detection_log'] += f"Interesting strings: {findings['smart_strings']}\n"
-        # Does NOT trigger LLM alone, but included in payload
-        findings['llm_payload'] += f"\nInteresting strings:\n" + "\n".join(smart_strings[:10])
-    else:
-        findings['detection_log'] += "No interesting strings found.\n"
 
-    # Final conclusion
     if not findings['needs_llm']:
         findings['detection_log'] += "LLM analysis NOT triggered.\n"
     else:
-        findings['detection_log'] += "LLM analysis triggered based on above findings.\n"
+        findings['detection_log'] += "LLM analysis triggered.\n"
 
     return findings
 
-# === MAIN EXECUTION ===
+# === MAIN ===
 def main():
     parser = argparse.ArgumentParser(description="Scan memory dumps and send complex findings to Zaphod.")
     parser.add_argument("dump_dir", help="Directory with scan_*.bin files")
     parser.add_argument("zaphod_url", help="Zaphod server URL, e.g., http://localhost:8000")
-    parser.add_argument("--model", default="mistral", help="Model name to use (default: mistral)")
-    parser.add_argument("--outdir", help="Directory to save JSON LLM responses", default=None)
+    parser.add_argument("--model", default="mistral", help="Model name (default: mistral)")
+    parser.add_argument("--outdir", help="Directory to save LLM responses", default=None)
+    parser.add_argument("--decompile", action="store_true", help="Attempt lightweight pseudo-decompilation")
     args = parser.parse_args()
 
     if args.outdir:
@@ -194,13 +186,13 @@ def main():
             continue
         fpath = os.path.join(args.dump_dir, fname)
         print(f"[*] Scanning {fname}...")
-        findings = scan_file(fpath)
+        findings = scan_file(fpath, decompile_mode=args.decompile)
         log_message(findings['detection_log'])
 
         if findings['needs_llm']:
             prompt = (
                 "You are an expert reverse engineer.\n"
-                "Analyze the following findings from a memory dump.\n"
+                "Analyze the following findings extracted from memory.\n"
                 "Return ONLY a JSON object in this format:\n"
                 "{ \"summary\": \"<detailed explanation>\" }\n\n"
                 f"{findings['llm_payload']}"
@@ -233,9 +225,9 @@ def main():
                         if args.outdir:
                             with open(os.path.join(args.outdir, f"{fname}.partial.json"), "w") as partialfile:
                                 partialfile.write(extracted_json)
-                        print(f"[!] Partial JSON parsing error for {fname}: {e}")
+                        print(f"[!] Partial JSON error for {fname}: {e}")
                 else:
-                    print(f"[!] No JSON extracted from LLM response for {fname}.")
+                    print(f"[!] No JSON extracted for {fname}.")
 
             except Exception as e:
                 print(f"[!] LLM request error for {fname}: {e}")
