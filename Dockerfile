@@ -36,12 +36,12 @@ ENV HF_HOME=/workspace/model_cache
 RUN mkdir -p $HF_HOME
 
 # Fix ownership (VERY IMPORTANT)
-RUN chown -R zaphod:zaphod /app
+RUN chown -R zaphod:zaphod /workspace
 RUN chmod 750 /workspace/app/start_server.sh
 
 # Example: set directories and files minimal permissions
-RUN find /app -type d -exec chmod 755 {} \; \
- && find /app -type f -exec chmod 644 {} \;
+RUN find /workspace -type d -exec chmod 755 {} \; \
+ && find /workspace -type f -exec chmod 644 {} \;
 
 # Switch user
 USER zaphod
