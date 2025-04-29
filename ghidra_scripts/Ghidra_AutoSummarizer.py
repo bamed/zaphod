@@ -9,10 +9,10 @@ from ghidra.app.decompiler import DecompInterface
 from java.net import URL
 from java.nio.charset import StandardCharsets
 import json
+import re
 
 SERVER_URL = "http://localhost:8000/analyze"
 
-# Decompile current function
 def decompileFunction(func):
     if func is None:
         return None
@@ -24,6 +24,18 @@ def decompileFunction(func):
     else:
         return None
 
+def extract_last_json_block(text):
+    try:
+        matches = list(re.finditer(r'\{.*?\}', text, re.DOTALL))
+        for match in reversed(matches):
+            try:
+                return json.loads(match.group())
+            except Exception:
+                continue
+    except Exception as e:
+        print("Regex parsing failed: {}".format(e))
+    return None
+
 currentFunction = getFunctionContaining(currentAddress)
 if currentFunction is None:
     print("No function selected.")
@@ -34,16 +46,12 @@ if not decompiled:
     print("Unable to decompile function.")
     exit()
 
-# Optional: truncate very large decompiled functions to avoid server issues
-# Sanitize non-printable characters
+# Sanitize
 decompiled = ''.join(c if 31 < ord(c) < 127 else ' ' for c in decompiled)
-
-# Trim very large decompiled functions
 if len(decompiled) > 5000:
     decompiled = decompiled[:5000]
 
-
-# Prepare JSON payload
+# Payload
 payload = {
     "model_name": "default",
     "function_code": decompiled,
@@ -63,10 +71,15 @@ try:
     if response_code == 200:
         input_stream = connection.getInputStream()
         response_text = ''.join([chr(b) for b in input_stream.readAllBytes()])
-        response_json = json.loads(response_text)
-        summary = response_json['summary']
-        currentFunction.setComment(response_text)
-        print("Inserted summary: {}".format(summary))
+        print("Raw response:\n{}".format(response_text))  # DEBUG LOG
+
+        parsed = extract_last_json_block(response_text)
+        if parsed and "summary" in parsed:
+            summary = parsed["summary"]
+            currentFunction.setComment(summary)
+            print("Inserted summary: {}".format(summary))
+        else:
+            print("Failed to parse valid summary JSON.")
     else:
         print("Error analyzing function: HTTP {}".format(response_code))
 

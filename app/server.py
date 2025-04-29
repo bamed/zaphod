@@ -78,12 +78,12 @@ def parse_function_name(model_output):
 class GenerateRequest(BaseModel):
     model_name: str
     prompt: str
-    max_length: int = 100
+    max_length: int = 512
 
 class AnalyzeRequest(BaseModel):
     model_name: str
     function_code: str
-    max_length: int = 100
+    max_length: int = 512
 
 class RenameFunctionRequest(BaseModel):
     model_name: str
@@ -93,7 +93,7 @@ class RenameFunctionRequest(BaseModel):
 class DetectAlgorithmRequest(BaseModel):
     model_name: str
     function_code: str
-    max_length: int = 150
+    max_length: int = 512
 
 class ChatRequest(BaseModel):
     model_name: str
@@ -121,20 +121,37 @@ async def chat(req: ChatRequest):
         )
         result = analyze_function(analyze_req)
         return {"action": "analyze_function", "result": result}
-
     elif "algorithm" in user_prompt and req.function_code:
+        from server import DetectAlgorithmRequest
+        detect_req = DetectAlgorithmRequest(
+            model_name=req.model_name,
+            function_code=req.function_code
+        )
+        result = detect_algorithm(detect_req)
+        return {"action": "detect_algorithm", "result": result}
+
+    else:
         # Default fallback: send combined message to model
         model = registry.get_model(req.model_name)
         if not model:
             raise HTTPException(status_code=404, detail="Model not found")
         full_prompt = (
-            f"You are an expert malware reverse engineer. Here are brief findings and a summary of some potentially malicious files youare examining:\n"
+            f"You are an expert reverse engineer.\n"
             f"{req.message.strip()}\n\n"
             f"{req.function_code.strip()}\n\n"
-            f"In one sentence, explain why this file might or might not be worth further analysis."
+            f"Respond in one concise sentence."
         )
-        output = model(full_prompt, max_new_tokens=64)
-        return {"response": output.strip()}
+        print("\n=== Prompt Sent to Model ===")
+        print(full_prompt)
+        print("=============================\n")
+        try:
+            output = model(full_prompt, max_new_tokens=1024)
+        except Exception as e:
+            return {"Response": f"Model error: {str(e)}"}
+        print("\n=== Raw Model Response ===")
+        print(output)
+        print("===========================\n")
+        return {"response": str(output).strip()}
 
 @app.post("/generate")
 def generate_text(req: GenerateRequest):
