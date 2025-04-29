@@ -133,11 +133,16 @@ def main():
                 }
                 chat_resp = requests.post(f"{args.zaphod_url}/chat", json=chat_payload)
                 chat_parsed = extract_json(chat_resp.text)
-
+                raw_summary = chat_parsed.get("summary", "No summary returned.")
+                marker = "Respond in one concise sentence."
+                if marker in raw_summary:
+                    cleaned_summary = raw_summary.split(marker, 1)[-1].strip()
+                else:
+                    cleaned_summary = raw_summary
                 summary_report.append({
                     "filename": fname,
                     "reason": findings["reason"].strip(),
-                    "chat_summary": chat_parsed.get("summary", "No summary returned.")
+                    "chat_summary": cleaned_summary
                 })
 
             else:
