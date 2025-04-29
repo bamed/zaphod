@@ -37,7 +37,17 @@ INSTANCE_JSON=$(vastai create instance "$OFFER_ID" \
     --ssh)
 
 echo $INSTANCE_JSON
-CONTRACT_ID=$(echo "${INSTANCE_JSON,,}" | grep -o '{.*}'| sed "s/'/\"/g"| jq -r '.new_contract')
+if [ -n "$ZSH_VERSION" ]; then
+    # running in zsh
+    CONTRACT_ID=$(echo "${(L)INSTANCE_JSON}" | grep -o '{.*}'| sed "s/'/\"/g"| jq -r '.new_contract')
+elif [ -n "$BASH_VERSION" ]; then
+    # running in bash
+    CONTRACT_ID=$(echo "${INSTANCE_JSON,,}" | grep -o '{.*}'| sed "s/'/\"/g"| jq -r '.new_contract')
+else
+    echo "Unsupported shell. Please run with bash or zsh."
+    exit 1
+fi
+
 
 echo $CONTRACT_ID
 
