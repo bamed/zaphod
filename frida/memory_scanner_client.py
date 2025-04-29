@@ -13,10 +13,16 @@ from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
 PE_MAGIC = b'MZ'
 PYTHON_MAGIC = [b'\x42\x0D\x0D\x0A', b'\x42\x0D\x0D\x0D']
 MAX_PROMPT_LENGTH = 5000
-JSON_REGEX = r'\{(?:[^{}]|(?R))*\}'  # Recursive regex for JSON blocks
+JSON_REGEX = r'\{(?:[^{}]|(?R))*\}'  # Recursive regex to find JSON
 LOG_FILE = "scan.log"
 
-# === ANALYSIS HELPERS ===
+# === SMART STRING PATTERNS ===
+IP_REGEX = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
+DOMAIN_REGEX = r'\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+EMAIL_REGEX = r'\b[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
+FUNCNAME_REGEX = r'\b[A-Za-z_][A-Za-z0-9_]{4,}\b'
+
+# === HELPERS ===
 def entropy(data):
     if not data:
         return 0
@@ -29,19 +35,17 @@ def detect_pe(data):
 def detect_python_bytecode(data):
     return [i for i in range(len(data) - 3) if data[i:i+4] in PYTHON_MAGIC]
 
-def extract_ascii_strings(data, min_len=5):
-    result = []
-    current = b""
-    for b in data:
-        if 32 <= b <= 126:
-            current += bytes([b])
-        else:
-            if len(current) >= min_len:
-                result.append(current.decode('ascii', errors='ignore'))
-            current = b""
-    if len(current) >= min_len:
-        result.append(current.decode('ascii', errors='ignore'))
-    return result
+def smart_extract_strings(data, min_len=5):
+    printable = ''.join(chr(b) if 32 <= b <= 126 else '\x00' for b in data)
+    candidates = printable.split('\x00')
+    extracted = set()
+
+    for s in candidates:
+        s = s.strip()
+        if len(s) >= min_len:
+            if re.match(IP_REGEX, s) or re.match(DOMAIN_REGEX, s) or re.match(EMAIL_REGEX, s) or re.match(FUNCNAME_REGEX, s):
+                extracted.add(s)
+    return list(extracted)
 
 def disassemble_pe(data, arch='x86'):
     md = Cs(CS_ARCH_X86, CS_MODE_32 if arch == 'x86' else CS_MODE_64)
@@ -74,21 +78,22 @@ def scan_file(filepath):
     findings = {
         "pe_offsets": [],
         "python_offsets": [],
-        "ascii_strings": [],
+        "smart_strings": [],
         "high_entropy_blocks": [],
         "needs_llm": False,
-        "llm_payload": ""
+        "llm_payload": "",
+        "detection_log": ""
     }
 
     try:
         with open(filepath, "rb") as f:
             data = f.read()
     except Exception as e:
-        log_message(f"ERROR: Could not read file {filepath}: {e}")
+        findings['detection_log'] = f"ERROR: Could not read file: {e}"
         return findings
 
     basename = os.path.basename(filepath)
-    log_message(f"--- Scanning {basename} ---")
+    findings['detection_log'] += f"--- Scanning {basename} ---\n"
 
     # PE detection
     pe_offsets = detect_pe(data)
@@ -96,11 +101,13 @@ def scan_file(filepath):
         findings['pe_offsets'] = [hex(off) for off in pe_offsets]
         findings['needs_llm'] = True
         findings['llm_payload'] += f"PE header(s) found at {findings['pe_offsets']}\n"
-        disasm_preview = disassemble_pe(data[:2048])
+        disasm_preview = disassemble_pe(data[:4096])
         findings['llm_payload'] += "\nDisassembly Preview:\n" + "\n".join(disasm_preview[:20])
-        log_message(f"{basename}: PE header(s) at {findings['pe_offsets']}")
+        findings['detection_log'] += f"PE headers found at: {findings['pe_offsets']}\n"
+    else:
+        findings['detection_log'] += "No PE headers found.\n"
 
-    # Python bytecode
+    # Python bytecode detection
     py_offsets = detect_python_bytecode(data)
     if py_offsets:
         findings['python_offsets'] = [hex(off) for off in py_offsets]
@@ -108,7 +115,9 @@ def scan_file(filepath):
         for off in py_offsets:
             py_obj = try_unmarshal_python(data[off:])
             findings['llm_payload'] += f"\nPython bytecode at {hex(off)}:\n{py_obj}\n"
-        log_message(f"{basename}: Python bytecode at {findings['python_offsets']}")
+        findings['detection_log'] += f"Python bytecode found at: {findings['python_offsets']}\n"
+    else:
+        findings['detection_log'] += "No Python bytecode found.\n"
 
     # Entropy scan
     block_size = 512
@@ -121,20 +130,33 @@ def scan_file(filepath):
         findings['high_entropy_blocks'] = entropy_hits
         findings['needs_llm'] = True
         findings['llm_payload'] += f"\nHigh-entropy regions at: {entropy_hits}\n"
-        log_message(f"{basename}: High entropy blocks at {entropy_hits}")
+        findings['detection_log'] += f"High entropy blocks found at: {entropy_hits}\n"
+    else:
+        findings['detection_log'] += "No high entropy blocks detected.\n"
 
-    # Strings (not used for LLM unless others fail)
-    findings['ascii_strings'] = extract_ascii_strings(data)[:10]
+    # Smart string extraction
+    smart_strings = smart_extract_strings(data)
+    if smart_strings:
+        findings['smart_strings'] = smart_strings[:10]
+        findings['detection_log'] += f"Interesting strings: {findings['smart_strings']}\n"
+        # Does NOT trigger LLM alone, but included in payload
+        findings['llm_payload'] += f"\nInteresting strings:\n" + "\n".join(smart_strings[:10])
+    else:
+        findings['detection_log'] += "No interesting strings found.\n"
 
+    # Final conclusion
     if not findings['needs_llm']:
-        log_message(f"{basename}: No LLM analysis needed.")
+        findings['detection_log'] += "LLM analysis NOT triggered.\n"
+    else:
+        findings['detection_log'] += "LLM analysis triggered based on above findings.\n"
+
     return findings
 
 # === MAIN EXECUTION ===
 def main():
     parser = argparse.ArgumentParser(description="Scan memory dumps and send complex findings to Zaphod.")
     parser.add_argument("dump_dir", help="Directory with scan_*.bin files")
-    parser.add_argument("zaphod_url", help="Zaphod server URL, e.g. http://localhost:8000")
+    parser.add_argument("zaphod_url", help="Zaphod server URL, e.g., http://localhost:8000")
     parser.add_argument("--model", default="mistral", help="Model name to use (default: mistral)")
     parser.add_argument("--outdir", help="Directory to save JSON LLM responses", default=None)
     args = parser.parse_args()
@@ -152,11 +174,12 @@ def main():
         fpath = os.path.join(args.dump_dir, fname)
         print(f"[*] Scanning {fname}...")
         findings = scan_file(fpath)
+        log_message(findings['detection_log'])
 
         if findings['needs_llm']:
-            raw_prompt = (
+            prompt = (
                 "You are an expert reverse engineer.\n"
-                "Given the following dump analysis, explain what it appears to do.\n"
+                "Analyze the following findings from a memory dump.\n"
                 "Return ONLY a JSON object in this format:\n"
                 "{ \"summary\": \"<detailed explanation>\" }\n\n"
                 f"{findings['llm_payload']}"
@@ -164,7 +187,7 @@ def main():
 
             payload = {
                 "model_name": args.model,
-                "function_code": raw_prompt,
+                "function_code": prompt,
                 "max_length": 512
             }
 
@@ -173,26 +196,28 @@ def main():
                 response.raise_for_status()
                 raw_output = response.text
 
+                if args.outdir:
+                    with open(os.path.join(args.outdir, f"{fname}.raw.txt"), "w") as rawfile:
+                        rawfile.write(raw_output)
+
                 extracted_json = extract_json_blocks(raw_output)
                 if extracted_json:
                     try:
                         parsed = json.loads(extracted_json)
-                        print(f"[+] LLM response: {parsed['summary'][:120]}...")
                         if args.outdir:
                             with open(os.path.join(args.outdir, f"{fname}.json"), "w") as out:
                                 json.dump(parsed, out, indent=2)
-                        log_message(f"{fname}: LLM summary written to JSON.")
+                        print(f"[+] LLM summary saved for {fname}.")
                     except Exception as e:
-                        print(f"[!] JSON parse error: {e}")
-                        print(f"Raw block:\n{extracted_json[:300]}")
-                        log_message(f"{fname}: JSON parse error: {e}")
+                        if args.outdir:
+                            with open(os.path.join(args.outdir, f"{fname}.partial.json"), "w") as partialfile:
+                                partialfile.write(extracted_json)
+                        print(f"[!] Partial JSON parsing error for {fname}: {e}")
                 else:
-                    print(f"[!] No valid JSON in LLM response for {fname}")
-                    log_message(f"{fname}: No valid JSON extracted from LLM response.")
+                    print(f"[!] No JSON extracted from LLM response for {fname}.")
 
             except Exception as e:
-                print(f"[!] Error contacting Zaphod for {fname}: {e}")
-                log_message(f"{fname}: LLM request error: {e}")
+                print(f"[!] LLM request error for {fname}: {e}")
         else:
             print(f"[~] No LLM needed for {fname}.")
 
