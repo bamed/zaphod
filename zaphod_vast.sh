@@ -71,9 +71,10 @@ echo "🔗 SSH is almost ready at $PUBLIC_IP:$SSH_PORT..."
 
 # Wait for SSH to be available
 echo ""
-echo "ssh -p $SSH_PORT -i ~/.ssh/vast.pem root@$PUBLIC_IP -L 8000:localhost:8000"
+echo "ssh -p $SSH_PORT -i ~/.ssh/vast.pem root@$PUBLIC_IP -L 0.0.0.0:8000:localhost:8000"
 echo ""
 
 # Monitor logs for FastAPI
-echo "🔍 You still need to ssh in and setup your config.json"
+echo "🔍 You still need to ssh in using the command above to establish the ssh tunnel to Vast."
+echo "Might also want to go grab a cup of tea, or if you're one of the few lucky Hitchikers out there with access to a Nutrimatic Drinks Dispenser, a beverage almost, but not uite, entirely unlike tea, because it will take your instance some time to setup the LLM model on initial boot."
 
