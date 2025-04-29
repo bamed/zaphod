@@ -31,7 +31,7 @@ echo "🚀 Creating Vast.ai instance..."
 INSTANCE_JSON=$(vastai create instance "$OFFER_ID" \
     --image "bamed/zaphod:latest" \
     --env '-p 8000:8000' \
-    --onstart-cmd "mkdir -p /workspace/config && echo '{\"hf_token\": $HF_TOKEN}' > /workspace/config/config.json && docker-compose -f /workspace/zaphod/docker-compose.vast.yml up" \
+    --onstart-cmd "mkdir -p /workspace/config && echo '{\"hf_token\": \"$HF_TOKEN\"}' > /workspace/config/config.json && cd /workspace/app && /workspace/app/start_server.sh" \
     --disk 40 \
     --api-key $VASTAI_API_KEY \
     --ssh)
