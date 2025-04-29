@@ -1,8 +1,14 @@
 # Import dumped memory artifacts into Ghidra bookmarks
+#@author bamed
+#@category ZAPHOD
+#@keybinding 
+#@menupath 
+#@toolbar 
 
 import os
 import json
 from ghidra.program.model.symbol import SourceType
+from java.awt import Color
 
 dumps_folder = askDirectory("Select dump folder", "OK")
 metadata_file = os.path.join(dumps_folder.getAbsolutePath(), "dump_metadata.json")
@@ -26,6 +32,6 @@ for entry in dump_info:
         addr = toAddr(int(addr_str, 16))
         bm.setBookmark(addr, "SuspiciousMemoryDump", "Detected at " + api, None)
         setBackgroundColor(addr, Color.YELLOW)
-        print(f"Marked suspicious memory at {addr} ({size} bytes) from {api}")
+        print("Marked suspicious memory at {} ({} bytes) from {}".format(addr, size, api))
     except Exception as e:
-        print(f"Failed to mark {addr_str}: {e}")
+        print("Failed to mark {}: {}".format(addr_str, e))

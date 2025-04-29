@@ -18,8 +18,11 @@ RUN pip3 install --no-cache-dir \
 
 RUN pip3 install --no-cache-dir transformers accelerate fastapi uvicorn 
 
-# Create app directory
-WORKDIR /app
+# Create user and group
+RUN addgroup --system zaphod && adduser --system --ingroup zaphod zaphod
+
+# Create workspace directory
+WORKDIR /workspace
 
 # Copy local files into the container
 COPY requirements.txt .
@@ -29,11 +32,22 @@ RUN pip3 install --no-cache-dir -r requirements.txt
 COPY . .
 
 # Set model cache directory (you can change this if needed)
-ENV HF_HOME=/app/model_cache
+ENV HF_HOME=/workspace/model_cache
 RUN mkdir -p $HF_HOME
+
+# Fix ownership (VERY IMPORTANT)
+RUN chown -R zaphod:zaphod /app
+RUN chmod 750 /workspace/app/start_server.sh
+
+# Example: set directories and files minimal permissions
+RUN find /app -type d -exec chmod 755 {} \; \
+ && find /app -type f -exec chmod 644 {} \;
+
+# Switch user
+USER zaphod
 
 # Expose port for FastAPI
 EXPOSE 8000
 
 # Start the server
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000", "--reload"]
+CMD ["/workspace/app/start_server.sh"]
