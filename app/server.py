@@ -19,37 +19,36 @@ for name, model_id in models_to_load.items():
         print(f"Error loading {name}: {e}")
 
 def parse_function_summary(model_output):
-    import re
-    import json
-
     try:
         text = model_output[0]['generated_text'].strip()
         print("---text after model_output stripped---")
         print(text)
 
-        # Match only real summary blocks, not examples or code
-        json_blocks = re.findall(r'\{\s*"summary"\s*:\s*".*?"\s*\}', text, re.DOTALL)
-        print("---JSON blocks found by regex---")
-        print(json_blocks)
+        # Find last { to extract a possibly incomplete JSON block
+        last_brace = text.rfind('{')
+        if last_brace == -1:
+            print("[Parser Warning] No JSON start found.")
+            return "No summary available."
 
-        for block in reversed(json_blocks):
-            try:
-                parsed = json.loads(block)
-                if "summary" in parsed:
-                    print("----parsed about to be returned---")
-                    print(parsed)
-                    return parsed["summary"].strip()
-            except Exception as e:
-                print(f"[Inner JSON parse fail] {e}")
-                continue
+        possible_json = text[last_brace:].strip()
 
-        print("[Parser Warning] No valid summary block found.")
+        # Try to brute-force fix missing closing quotes/brackets
+        if not possible_json.endswith('}'):
+            possible_json += '"}' if possible_json.count('"') % 2 == 1 else '}'
+
+        print("---Attempting to parse final JSON block---")
+        print(possible_json)
+
+        parsed = json.loads(possible_json)
+        if "summary" in parsed:
+            return parsed["summary"].strip()
+
+        print("[Parser Warning] Parsed block missing 'summary'")
         return "No summary available."
 
     except Exception as e:
         print(f"[Parser Error] {e}")
         return "No summary available."
-
 
 
 def parse_function_name(model_output):
