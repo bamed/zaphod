@@ -4,12 +4,14 @@ import json
 import requests
 import argparse
 import marshal
+import re
 from math import log2
 from capstone import Cs, CS_ARCH_X86, CS_MODE_32, CS_MODE_64
 
 # Constants
 PE_MAGIC = b'MZ'
-PYTHON_MAGIC = [b'\x42\x0D\x0D\x0A', b'\x42\x0D\x0D\x0D']  # Example Python 3.11+
+PYTHON_MAGIC = [b'\x42\x0D\x0D\x0A', b'\x42\x0D\x0D\x0D']  # Python 3.11+
+JSON_REGEX = r'\{(?:[^{}]|(?R))*\}'  # recursive regex to find JSON objects
 
 def entropy(data):
     if not data:
@@ -94,9 +96,9 @@ def scan_file(filepath):
 
     # Strings
     ascii_strs = extract_ascii_strings(data)
-    findings['ascii_strings'] = ascii_strs[:10]  # Just preview
+    findings['ascii_strings'] = ascii_strs[:10]  # Preview only
 
-    # High-entropy detection
+    # High-entropy blocks
     block_size = 512
     entropy_hits = []
     for i in range(0, len(data), block_size):
@@ -110,10 +112,17 @@ def scan_file(filepath):
 
     return findings
 
+def extract_json_blocks(text):
+    matches = re.findall(JSON_REGEX, text, re.DOTALL)
+    if matches:
+        return matches[-1]  # Last JSON block
+    return None
+
 def main():
-    parser = argparse.ArgumentParser(description="Scan memory dumps and optionally send interesting findings to Zaphod")
+    parser = argparse.ArgumentParser(description="Scan memory dumps and send complex findings to Zaphod for LLM analysis.")
     parser.add_argument("dump_dir", help="Directory containing scan_*.bin files")
     parser.add_argument("zaphod_url", help="URL of Zaphod server, e.g., http://localhost:8000")
+    parser.add_argument("--model", help="Model name to use (e.g., mistral)", default="mistral")
     parser.add_argument("--outdir", help="Directory to save LLM responses", default=None)
     args = parser.parse_args()
 
@@ -132,20 +141,48 @@ def main():
         findings = scan_file(filepath)
 
         if findings['needs_llm']:
-            prompt = f"Analyze the following memory dump findings:\n{findings['llm_payload']}"
+            prompt = (
+                "You are an expert reverse engineer.\n"
+                "Analyze the following memory dump findings and summarize what the binary does.\n\n"
+                "Return ONLY a JSON object in this format:\n"
+                "{\n"
+                '  "summary": "<explanation>"\n'
+                "}\n\n"
+                "Findings:\n\n"
+                f"{findings['llm_payload']}"
+            )
+            payload = {
+                "model_name": args.model,
+                "function_code": prompt,
+                "max_length": 512
+            }
             try:
-                response = requests.post(f"{args.zaphod_url}/analyze", json={"prompt": prompt})
+                response = requests.post(f"{args.zaphod_url}/analyze", json=payload)
                 response.raise_for_status()
-                output = response.json()
-                print(f"[*] LLM response for {filename}:")
-                print(json.dumps(output, indent=2))
+                raw_output = response.text
 
-                if args.outdir:
-                    outpath = os.path.join(args.outdir, f"{filename}.json")
-                    with open(outpath, "w") as outf:
-                        json.dump(output, outf, indent=2)
+                extracted_json = extract_json_blocks(raw_output)
+                if extracted_json:
+                    try:
+                        parsed_json = json.loads(extracted_json)
+                        print(f"[*] LLM parsed response for {filename}:")
+                        print(json.dumps(parsed_json, indent=2))
+
+                        if args.outdir:
+                            outpath = os.path.join(args.outdir, f"{filename}.json")
+                            with open(outpath, "w") as outf:
+                                json.dump(parsed_json, outf, indent=2)
+                    except Exception as e:
+                        print(f"[!] Failed to parse JSON for {filename}: {e}")
+                        print(f"[!] Raw extracted JSON block:\n{extracted_json}")
+                else:
+                    print(f"[!] No JSON block found in LLM response for {filename}.")
+
+            except requests.exceptions.HTTPError as e:
+                print(f"[!] HTTP error for {filename}: {e}")
+                print(f"[!] Server said: {response.text}")
             except Exception as e:
-                print(f"[!] Failed to contact Zaphod for {filename}: {e}")
+                print(f"[!] General error for {filename}: {e}")
 
         else:
             print(f"[*] {filename} did not require LLM analysis.")
