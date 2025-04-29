@@ -19,31 +19,37 @@ for name, model_id in models_to_load.items():
         print(f"Error loading {name}: {e}")
 
 def parse_function_summary(model_output):
+    import re
+    import json
+
     try:
         text = model_output[0]['generated_text'].strip()
+        print("---text after model_output stripped---")
+        print(text)
 
-        # Find all JSON-looking blocks
-        json_blocks = re.findall(r'\{[^{}]*\}', text, re.DOTALL)
+        # Match only real summary blocks, not examples or code
+        json_blocks = re.findall(r'\{\s*"summary"\s*:\s*".*?"\s*\}', text, re.DOTALL)
+        print("---JSON blocks found by regex---")
+        print(json_blocks)
 
-        if not json_blocks:
-            print("[Parser Warning] No JSON blocks found.")
-            return "No summary available."
-
-        # Try to parse all JSON blocks, keep the last one that successfully parses
         for block in reversed(json_blocks):
             try:
                 parsed = json.loads(block)
                 if "summary" in parsed:
+                    print("----parsed about to be returned---")
+                    print(parsed)
                     return parsed["summary"].strip()
-            except Exception:
-                continue  # Ignore broken blocks
+            except Exception as e:
+                print(f"[Inner JSON parse fail] {e}")
+                continue
 
-        print("[Parser Warning] No valid JSON with 'summary' field found.")
+        print("[Parser Warning] No valid summary block found.")
         return "No summary available."
 
     except Exception as e:
         print(f"[Parser Error] {e}")
         return "No summary available."
+
 
 
 def parse_function_name(model_output):
@@ -191,6 +197,10 @@ def analyze_function(req: AnalyzeRequest):
     print("===========================\n")
 
     summary = parse_function_summary(output)
+
+    print("\n=== Summary Response ===")
+    print(summary)
+    print("===========================\n")
 
     return {"summary": summary}
 
