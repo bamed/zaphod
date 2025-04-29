@@ -35,10 +35,31 @@ def detect_pe(data):
 def detect_python_bytecode(data):
     return [i for i in range(len(data) - 3) if data[i:i+4] in PYTHON_MAGIC]
 
+def string_entropy(s):
+    """Calculate entropy of a single string."""
+    if not s:
+        return 0
+    probs = [float(s.count(c)) / len(s) for c in set(s)]
+    return -sum(p * log2(p) for p in probs)
+
 def smart_extract_strings(data, min_len=5):
     printable = ''.join(chr(b) if 32 <= b <= 126 else '\x00' for b in data)
     candidates = printable.split('\x00')
     extracted = set()
+
+    for s in candidates:
+        s = s.strip()
+        if len(s) >= min_len:
+            if re.match(IP_REGEX, s) or re.match(DOMAIN_REGEX, s) or re.match(EMAIL_REGEX, s) or re.match(FUNCNAME_REGEX, s):
+                extracted.add(s)
+            else:
+                if not re.fullmatch(r'[A-Z]{4,10}', s):
+                    extracted.add(s)
+                else:
+                    if string_entropy(s) >= 3.0:
+                        extracted.add(s)
+    return list(extracted)
+
 
     for s in candidates:
         s = s.strip()
