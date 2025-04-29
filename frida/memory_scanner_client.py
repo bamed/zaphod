@@ -16,24 +16,17 @@ MAX_PROMPT_LENGTH = 5000
 JSON_REGEX = r'\{(?:[^{}]|(?R))*\}'
 LOG_FILE = "scan.log"
 
-# SMART STRING PATTERNS
 IP_REGEX = r'\b(?:\d{1,3}\.){3}\d{1,3}\b'
 DOMAIN_REGEX = r'\b[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
 EMAIL_REGEX = r'\b[a-zA-Z0-9._%-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}\b'
 FUNCNAME_REGEX = r'\b[A-Za-z_][A-Za-z0-9_]{4,}\b'
 
-# === HELPERS ===
+# === UTILS ===
 def entropy(data):
     if not data:
         return 0
     probs = [float(data.count(c)) / len(data) for c in set(data)]
     return -sum(p * log2(p) for p in probs)
-
-def detect_pe(data):
-    return [i for i in range(len(data) - 1) if data[i:i+2] == PE_MAGIC]
-
-def detect_python_bytecode(data):
-    return [i for i in range(len(data) - 3) if data[i:i+4] in PYTHON_MAGIC]
 
 def string_entropy(s):
     if not s:
@@ -45,18 +38,14 @@ def smart_extract_strings(data, min_len=5):
     printable = ''.join(chr(b) if 32 <= b <= 126 else '\x00' for b in data)
     candidates = printable.split('\x00')
     extracted = set()
-
     for s in candidates:
         s = s.strip()
         if len(s) >= min_len:
-            if re.match(IP_REGEX, s) or re.match(DOMAIN_REGEX, s) or re.match(EMAIL_REGEX, s) or re.match(FUNCNAME_REGEX, s):
+            if (re.match(IP_REGEX, s) or re.match(DOMAIN_REGEX, s) or
+                re.match(EMAIL_REGEX, s) or re.match(FUNCNAME_REGEX, s)):
                 extracted.add(s)
-            else:
-                if not re.fullmatch(r'[A-Z]{4,10}', s):
-                    extracted.add(s)
-                else:
-                    if string_entropy(s) >= 3.0:
-                        extracted.add(s)
+            elif not re.fullmatch(r'[A-Z]{4,10}', s) or string_entropy(s) >= 3.0:
+                extracted.add(s)
     return list(extracted)
 
 def extract_json_blocks(text):
@@ -66,173 +55,173 @@ def extract_json_blocks(text):
 def log_message(message):
     timestamp = datetime.datetime.now().isoformat()
     with open(LOG_FILE, "a") as f:
-        f.write(f"[{timestamp}] {message}\n")
+        f.write(f"[{timestamp}] {message.strip()}\n")
 
 def pseudo_decompile(data):
-    """Try to pseudo-decompile code into C-like functions."""
     md = Cs(CS_ARCH_X86, CS_MODE_32)
     md.detail = True
     lines = []
-    func_started = False
-
+    started = False
     try:
         for i in md.disasm(data, 0x1000):
-            if not func_started and i.mnemonic == 'push' and i.op_str == 'ebp':
+            if not started and i.mnemonic == 'push' and i.op_str == 'ebp':
                 lines.append(f"int sub_{hex(i.address)}() {{")
-                func_started = True
-            elif func_started and i.mnemonic == 'mov' and i.op_str == 'ebp, esp':
-                continue
-            elif func_started and i.mnemonic == 'ret':
+                started = True
+            elif started and i.mnemonic == 'ret':
                 lines.append("  return;")
                 lines.append("}")
                 break
-            elif func_started:
-                # Very basic pseudo-instruction
+            elif started:
                 lines.append(f"  {i.mnemonic} {i.op_str};")
-        return "\n".join(lines) if func_started else None
-    except Exception as e:
+        return "\n".join(lines) if started else None
+    except Exception:
         return None
 
-# === FILE SCAN ===
-def scan_file(filepath, decompile_mode=False):
+# === MAIN SCAN LOGIC ===
+def scan_file(filepath, decompile=False):
     findings = {
-        "pe_offsets": [],
+        "filename": os.path.basename(filepath),
+        "pe_headers": [],
         "python_offsets": [],
-        "smart_strings": [],
         "high_entropy_blocks": [],
-        "needs_llm": False,
+        "smart_strings": [],
         "llm_payload": "",
-        "detection_log": ""
+        "llm_trigger_reason": "",
+        "needs_llm": False
     }
+    with open(filepath, "rb") as f:
+        data = f.read()
 
-    try:
-        with open(filepath, "rb") as f:
-            data = f.read()
-    except Exception as e:
-        findings['detection_log'] = f"ERROR: Could not read file: {e}"
-        return findings
-
-    basename = os.path.basename(filepath)
-    findings['detection_log'] += f"--- Scanning {basename} ---\n"
-
-    # PE detection
-    pe_offsets = detect_pe(data)
-    if pe_offsets:
-        findings['pe_offsets'] = [hex(off) for off in pe_offsets]
-        findings['needs_llm'] = True
-        findings['detection_log'] += f"PE headers at: {findings['pe_offsets']}\n"
-        if decompile_mode:
-            pseudo_c = pseudo_decompile(data[:4096])
-            if pseudo_c:
-                findings['llm_payload'] += f"Pseudo-decompiled C function:\n{pseudo_c}\n"
-                findings['detection_log'] += "Pseudo-C decompiled successfully.\n"
+    pe = [hex(i) for i in range(len(data)) if data[i:i+2] == PE_MAGIC]
+    if pe:
+        findings["pe_headers"] = pe
+        findings["llm_trigger_reason"] += "PE header found. "
+        findings["needs_llm"] = True
+        if decompile:
+            pseudo = pseudo_decompile(data[:4096])
+            if pseudo:
+                findings["llm_payload"] = pseudo
             else:
-                findings['llm_payload'] += f"Disassembly fallback:\n"
-                findings['detection_log'] += "Pseudo-C failed; fallback to disassembly.\n"
-    else:
-        findings['detection_log'] += "No PE headers found.\n"
+                findings["llm_payload"] = "\n".join(smart_extract_strings(data[:512]))
+        else:
+            findings["llm_payload"] = "\n".join(smart_extract_strings(data[:512]))
 
-    # Python bytecode
-    py_offsets = detect_python_bytecode(data)
-    if py_offsets:
-        findings['python_offsets'] = [hex(off) for off in py_offsets]
-        findings['needs_llm'] = True
-        findings['detection_log'] += f"Python bytecode at: {findings['python_offsets']}\n"
+    pyc = [hex(i) for i in range(len(data)) if data[i:i+4] in PYTHON_MAGIC]
+    if pyc:
+        findings["python_offsets"] = pyc
+        findings["llm_trigger_reason"] += "Python bytecode magic found. "
+        findings["needs_llm"] = True
+        findings["llm_payload"] += "\n# Possibly Python bytecode"
 
-    # Entropy
-    block_size = 512
-    entropy_hits = []
-    for i in range(0, len(data), block_size):
-        block = data[i:i+block_size]
-        if len(block) == block_size and entropy(block) > 7.5:
-            entropy_hits.append(hex(i))
-    if entropy_hits:
-        findings['high_entropy_blocks'] = entropy_hits
-        findings['needs_llm'] = True
-        findings['detection_log'] += f"High entropy blocks: {entropy_hits}\n"
+    high_entropy = [hex(i) for i in range(0, len(data), 512)
+                    if entropy(data[i:i+512]) > 7.5]
+    if high_entropy:
+        findings["high_entropy_blocks"] = high_entropy
+        findings["llm_trigger_reason"] += "High entropy block detected. "
+        findings["needs_llm"] = True
 
-    # Strings
-    smart_strings = smart_extract_strings(data)
-    if smart_strings:
-        findings['smart_strings'] = smart_strings[:10]
-        findings['detection_log'] += f"Interesting strings: {findings['smart_strings']}\n"
+    findings["smart_strings"] = smart_extract_strings(data)[:10]
 
-    if not findings['needs_llm']:
-        findings['detection_log'] += "LLM analysis NOT triggered.\n"
-    else:
-        findings['detection_log'] += "LLM analysis triggered.\n"
+    return findings, data
 
-    return findings
+def build_llm_prompt(payload):
+    return (
+        "You are an expert reverse engineer.\n"
+        "Analyze the following code or decompiled fragment. Provide ONLY a JSON object:\n"
+        "{ \"summary\": \"<concise explanation>\" }\n\n" + payload
+    )[:MAX_PROMPT_LENGTH]
 
-# === MAIN ===
+def safe_write_json(path, obj):
+    try:
+        with open(path, "w") as f:
+            json.dump(obj, f, indent=2)
+    except Exception:
+        with open(path, "w") as f:
+            f.write(json.dumps(str(obj)))
+
 def main():
-    parser = argparse.ArgumentParser(description="Scan memory dumps and send complex findings to Zaphod.")
-    parser.add_argument("dump_dir", help="Directory with scan_*.bin files")
-    parser.add_argument("zaphod_url", help="Zaphod server URL, e.g., http://localhost:8000")
-    parser.add_argument("--model", default="mistral", help="Model name (default: mistral)")
-    parser.add_argument("--outdir", help="Directory to save LLM responses", default=None)
-    parser.add_argument("--decompile", action="store_true", help="Attempt lightweight pseudo-decompilation")
+    parser = argparse.ArgumentParser()
+    parser.add_argument("dump_dir")
+    parser.add_argument("zaphod_url")
+    parser.add_argument("--model", default="mistral")
+    parser.add_argument("--outdir", default="./responses")
+    parser.add_argument("--decompile", action="store_true")
+    parser.add_argument("--debug", action="store_true")
     args = parser.parse_args()
 
-    if args.outdir:
-        os.makedirs(args.outdir, exist_ok=True)
-
-    if not os.path.isdir(args.dump_dir):
-        print(f"❌ Error: Directory not found: {args.dump_dir}")
-        return
+    os.makedirs(args.outdir, exist_ok=True)
+    summary_report = []
 
     for fname in os.listdir(args.dump_dir):
         if not fname.startswith("scan_"):
             continue
+
         fpath = os.path.join(args.dump_dir, fname)
-        print(f"[*] Scanning {fname}...")
-        findings = scan_file(fpath, decompile_mode=args.decompile)
-        log_message(findings['detection_log'])
+        print(f"[*] Scanning {fname}")
+        try:
+            findings, raw_data = scan_file(fpath, decompile=args.decompile)
+            log_message(f"{fname}: {findings['llm_trigger_reason']}")
 
-        if findings['needs_llm']:
-            prompt = (
-                "You are an expert reverse engineer.\n"
-                "Analyze the following findings extracted from memory.\n"
-                "Return ONLY a JSON object in this format:\n"
-                "{ \"summary\": \"<detailed explanation>\" }\n\n"
-                f"{findings['llm_payload']}"
-            )[:MAX_PROMPT_LENGTH]
+            if findings["needs_llm"]:
+                prompt = build_llm_prompt(findings["llm_payload"])
+                payload = {
+                    "model_name": args.model,
+                    "function_code": prompt,
+                    "max_length": 512
+                }
 
-            payload = {
-                "model_name": args.model,
-                "function_code": prompt,
-                "max_length": 512
-            }
+                r = requests.post(f"{args.zaphod_url}/analyze", json=payload)
+                response_text = r.text
+                raw_outfile = os.path.join(args.outdir, fname + ".raw.txt")
+                with open(raw_outfile, "w") as f:
+                    f.write(findings["llm_payload"])
 
-            try:
-                response = requests.post(f"{args.zaphod_url}/analyze", json=payload)
-                response.raise_for_status()
-                raw_output = response.text
+                try:
+                    extracted = extract_json_blocks(response_text)
+                    result = json.loads(extracted)
+                    safe_write_json(os.path.join(args.outdir, fname + ".json"), result)
+                except Exception as e:
+                    log_message(f"{fname}: Failed to parse JSON: {e}")
+                    safe_write_json(os.path.join(args.outdir, fname + ".partial.json"), response_text)
+                    result = {"summary": response_text.strip()[:200], "error": str(e)}
 
-                if args.outdir:
-                    with open(os.path.join(args.outdir, f"{fname}.raw.txt"), "w") as rawfile:
-                        rawfile.write(raw_output)
+                if args.debug:
+                    debug_out = {
+                        "filename": fname,
+                        "decompiled_code": findings["llm_payload"],
+                        "disassembly_fallback": None,
+                        "llm_response": result,
+                        "errors": None if isinstance(result, dict) else "LLM output not parsed"
+                    }
+                    safe_write_json(os.path.join(args.outdir, fname + ".debug.json"), debug_out)
 
-                extracted_json = extract_json_blocks(raw_output)
-                if extracted_json:
-                    try:
-                        parsed = json.loads(extracted_json)
-                        if args.outdir:
-                            with open(os.path.join(args.outdir, f"{fname}.json"), "w") as out:
-                                json.dump(parsed, out, indent=2)
-                        print(f"[+] LLM summary saved for {fname}.")
-                    except Exception as e:
-                        if args.outdir:
-                            with open(os.path.join(args.outdir, f"{fname}.partial.json"), "w") as partialfile:
-                                partialfile.write(extracted_json)
-                        print(f"[!] Partial JSON error for {fname}: {e}")
-                else:
-                    print(f"[!] No JSON extracted for {fname}.")
+                # now send to /chat for summary sentence
+                chat_payload = {
+                    "model_name": args.model,
+                    "message": "Give a short sentence explaining why this file may be interesting to a reverse engineer.",
+                    "function_code": f"{findings['llm_trigger_reason']}\n\n{result.get('summary', '')}"
+                }
+                try:
+                    chat_resp = requests.post(f"{args.zaphod_url}/chat", json=chat_payload).json()
+                    summary = {
+                        "file": fname,
+                        "reason": findings["llm_trigger_reason"],
+                        "summary": result.get("summary", "")[:500],
+                        "chat_summary": chat_resp.get("response", "")[:300]
+                    }
+                    summary_report.append(summary)
+                except Exception as e:
+                    log_message(f"{fname}: Failed chat summary: {e}")
 
-            except Exception as e:
-                print(f"[!] LLM request error for {fname}: {e}")
-        else:
-            print(f"[~] No LLM needed for {fname}.")
+            else:
+                log_message(f"{fname}: Not interesting.")
+
+        except Exception as e:
+            log_message(f"{fname}: SCAN ERROR: {e}")
+
+    # Write summary
+    with open("summary_report.json", "w") as f:
+        json.dump(summary_report, f, indent=2)
 
 if __name__ == "__main__":
     main()
