@@ -37,11 +37,13 @@ RUN mkdir -p $HF_HOME
 
 # Fix ownership (VERY IMPORTANT)
 RUN chown -R zaphod:zaphod /workspace
-RUN chmod 750 /workspace/app/start_server.sh
 
 # Example: set directories and files minimal permissions
 RUN find /workspace -type d -exec chmod 755 {} \; \
  && find /workspace -type f -exec chmod 644 {} \;
+
+# Apps gotta run
+RUN chmod 750 /workspace/app/start_server.sh
 
 # Switch user
 USER zaphod

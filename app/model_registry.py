@@ -5,7 +5,7 @@ from transformers import pipeline, AutoModelForCausalLM, AutoTokenizer, logging 
 
 # Load Hugging Face token securely
 HF_TOKEN = None
-config_path = os.path.join(os.path.dirname(__file__), "config", "config.json")
+config_path = os.path.join(os.path.dirname(__file__), "..", "config", "config.json")
 if os.path.exists(config_path):
     try:
         with open(config_path, "r") as f:
