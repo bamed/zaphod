@@ -23,27 +23,28 @@ def parse_function_summary(model_output):
         text = model_output[0]['generated_text'].strip()
 
         # Find all JSON-looking blocks
-        json_blocks = re.findall(r'\{.*?\}', text, re.DOTALL)
+        json_blocks = re.findall(r'\{[^{}]*\}', text, re.DOTALL)
 
         if not json_blocks:
             print("[Parser Warning] No JSON blocks found.")
             return "No summary available."
 
         # Try to parse all JSON blocks, keep the last one that successfully parses
-        last_good_summary = "No summary available."
-        for block in json_blocks:
+        for block in reversed(json_blocks):
             try:
                 parsed = json.loads(block)
                 if "summary" in parsed:
-                    last_good_summary = parsed["summary"].strip()
+                    return parsed["summary"].strip()
             except Exception:
                 continue  # Ignore broken blocks
 
-        return last_good_summary
+        print("[Parser Warning] No valid JSON with 'summary' field found.")
+        return "No summary available."
 
     except Exception as e:
         print(f"[Parser Error] {e}")
         return "No summary available."
+
 
 def parse_function_name(model_output):
     """
@@ -178,7 +179,6 @@ def analyze_function(req: AnalyzeRequest):
         f"{req.function_code}\n\n"
         "Respond ONLY with the JSON, nothing else."
     )
-
 
     print("\n=== Prompt Sent to Model ===")
     print(wrapped_prompt)
