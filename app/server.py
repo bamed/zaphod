@@ -123,16 +123,18 @@ async def chat(req: ChatRequest):
         return {"action": "analyze_function", "result": result}
 
     elif "algorithm" in user_prompt and req.function_code:
-        from server import DetectAlgorithmRequest
-        detect_req = DetectAlgorithmRequest(
-            model_name=req.model_name,
-            function_code=req.function_code
+        # Default fallback: send combined message to model
+        model = registry.get_model(req.model_name)
+        if not model:
+            raise HTTPException(status_code=404, detail="Model not found")
+        full_prompt = (
+            f"You are an expert malware reverse engineer. Here are brief findings and a summary of some potentially malicious files youare examining:\n"
+            f"{req.message.strip()}\n\n"
+            f"{req.function_code.strip()}\n\n"
+            f"In one sentence, explain why this file might or might not be worth further analysis."
         )
-        result = detect_algorithm(detect_req)
-        return {"action": "detect_algorithm", "result": result}
-
-    else:
-        return {"response": "Sorry, I didn't understand your request."}
+        output = model(full_prompt, max_new_tokens=64)
+        return {"response": output.strip()}
 
 @app.post("/generate")
 def generate_text(req: GenerateRequest):
