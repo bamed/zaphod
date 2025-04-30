@@ -1,0 +1,100 @@
+# Standard library
+from datetime import datetime
+from typing import Dict, Any
+
+# Third-party imports
+from fastapi import APIRouter, Depends
+from pydantic import BaseModel
+
+# Local imports
+from .auth import ApiKeyValidator
+from .rate_limiter import RateLimiter
+from .registry import ModelRegistry
+
+# Correct dependency injection
+def get_rate_limiter() -> RateLimiter:
+    from .server import rate_limiter  # Avoid circular import
+    return rate_limiter
+
+def get_model_registry() -> ModelRegistry:
+    from .server import registry
+    return registry
+
+def get_api_validator() -> ApiKeyValidator:
+    from .server import api_key_validator
+    return api_key_validator
+
+class ComponentHealth(BaseModel):
+    status: str
+    details: Dict[str, Any] = {}
+    last_check: datetime
+
+class HealthStatus(BaseModel):
+    status: str
+    components: Dict[str, ComponentHealth]
+    timestamp: datetime
+
+router = APIRouter()
+
+@router.get("/health", response_model=HealthStatus)
+async def health_check(
+    rate_limiter: RateLimiter = Depends(get_rate_limiter),
+    registry: ModelRegistry = Depends(get_model_registry),
+    api_validator: ApiKeyValidator = Depends(get_api_validator)
+) -> HealthStatus:
+    components = {}
+    overall_status = "healthy"
+
+    # Check rate limiter
+    try:
+        rate_limiter_health = await rate_limiter.is_healthy()
+        components["rate_limiter"] = ComponentHealth(
+            status="healthy" if rate_limiter_health else "degraded",
+            last_check=datetime.utcnow()
+        )
+    except Exception as e:
+        components["rate_limiter"] = ComponentHealth(
+            status="unhealthy",
+            details={"error": str(e)},
+            last_check=datetime.utcnow()
+        )
+        overall_status = "degraded"
+
+    # Check providers
+    try:
+        provider_status = await registry.get_health_status()
+        components["providers"] = ComponentHealth(
+            status="healthy" if all(provider_status.values()) else "degraded",
+            details=provider_status,
+            last_check=datetime.utcnow()
+        )
+        if not all(provider_status.values()):
+            overall_status = "degraded"
+    except Exception as e:
+        components["providers"] = ComponentHealth(
+            status="unhealthy",
+            details={"error": str(e)},
+            last_check=datetime.utcnow()
+        )
+        overall_status = "unhealthy"
+
+    # Check API validator
+    try:
+        validator_health = api_validator.is_healthy()
+        components["api_validator"] = ComponentHealth(
+            status="healthy" if validator_health else "degraded",
+            last_check=datetime.utcnow()
+        )
+    except Exception as e:
+        components["api_validator"] = ComponentHealth(
+            status="unhealthy",
+            details={"error": str(e)},
+            last_check=datetime.utcnow()
+        )
+        overall_status = "unhealthy"
+
+    return HealthStatus(
+        status=overall_status,
+        components=components,
+        timestamp=datetime.utcnow()
+    )
