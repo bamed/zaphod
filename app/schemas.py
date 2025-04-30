@@ -1,11 +1,5 @@
-# Standard library
 from typing import List, Optional
-
-# Third-party imports
 from pydantic import BaseModel, conint, confloat, validator
-
-# No local imports needed for basic schema definition
-# Note: The dynamic provider validation might need a different approach to avoid circular imports
 
 class GenerateRequest(BaseModel):
     prompt: str
@@ -17,9 +11,14 @@ class GenerateRequest(BaseModel):
     @validator('provider')
     def validate_provider(cls, v):
         if v is not None:
-            # Get valid providers from registry
-            from .server import registry
-            valid_providers = registry.providers.keys()
-            if v not in valid_providers:
-                raise ValueError(f"Invalid provider. Must be one of: {', '.join(valid_providers)}")
+            try:
+            # Updated import path
+                from .server import registry  # This imports the instance from server.py
+                if not registry._initialized:
+                    raise RuntimeError("Registry not initialized")
+                valid_providers = registry.providers.keys()
+                if v not in valid_providers:
+                    raise ValueError(f"Invalid provider. Must be one of: {', '.join(valid_providers)}")
+            except Exception as e:
+                raise ValueError("Unable to validate provider at this time")
         return v
