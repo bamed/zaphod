@@ -1,3 +1,7 @@
 *.pyc
+config/config.json
+*config.json
 /app/config/*.json
 *.json
+config/*.json
+.venv/
