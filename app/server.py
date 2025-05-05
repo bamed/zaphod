@@ -1,6 +1,5 @@
 # Standard library
 import logging
-from datetime import datetime
 
 # Third-party
 from fastapi import FastAPI, Depends, HTTPException
@@ -10,10 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from .auth import ApiKey, ApiKeyValidator, verify_api_key
 from .health import router as health_router
 from .middleware import RequestIDMiddleware, request_id_context
-from .rate_limiter import RateLimiter
 from .model_registry import ModelRegistry
-from .schemas import GenerateRequest
 from .models import Settings
+from .rate_limiter import RateLimiter
+from .schemas import GenerateRequest
 
 # Initialize logging
 logging.basicConfig(level=logging.INFO)

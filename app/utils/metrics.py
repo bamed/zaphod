@@ -1,8 +1,8 @@
-from prometheus_client import Counter, Histogram, Gauge
-from typing import Dict, Any
-import time
-from threading import Lock
 from collections import Counter
+from threading import Lock
+from typing import Dict
+
+from prometheus_client import Counter, Histogram, Gauge
 
 # Request metrics
 request_count = Counter(

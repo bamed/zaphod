@@ -161,7 +161,7 @@ check_venv() {
         return 1
     fi
 
-    VENV_PYTHON_VERSION=$("$VENV_DIR/bin/python" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    VENV_PYTHON_VERSION=$("$VENV_DIR/bin/python3" -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     if [[ "$VENV_PYTHON_VERSION" != "3.11" ]]; then
         log_warning "Virtual environment Python version is $VENV_PYTHON_VERSION, expected 3.11"
         return 1
@@ -178,7 +178,7 @@ check_packages() {
     fi
 
     if [ -f "$REQUIREMENTS_FILE" ]; then
-        MISSING_PACKAGES=$("$VENV_DIR/bin/pip" list --format=freeze | grep -v -f "$REQUIREMENTS_FILE")
+        MISSING_PACKAGES=$("$VENV_DIR/bin/pip3" list --format=freeze | grep -v -f "$REQUIREMENTS_FILE")
         if [ -n "$MISSING_PACKAGES" ]; then
             log_warning "Some required packages are not installed:"
             echo "$MISSING_PACKAGES"
@@ -205,7 +205,7 @@ setup_environment() {
     # Create new virtual environment if it doesn't exist
     if [ ! -d "$VENV_DIR" ]; then
         log_info "Creating virtual environment..."
-        if ! python -m venv "$VENV_DIR"; then
+        if ! "$(pyenv which python3)" -m venv "$VENV_DIR"; then
             log_error "Failed to create virtual environment"
             exit 1
         fi
@@ -218,7 +218,7 @@ setup_environment() {
     fi
 
     # Verify virtual environment activation and Python version
-    VENV_PYTHON_VERSION=$(python -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
+    VENV_PYTHON_VERSION=$(python3 -c 'import sys; print(f"{sys.version_info.major}.{sys.version_info.minor}")')
     if [[ "$VENV_PYTHON_VERSION" != "3.11" ]]; then
         log_error "Virtual environment Python version is $VENV_PYTHON_VERSION, expected 3.11"
         log_error "Please remove the .venv directory and try again"
@@ -227,25 +227,38 @@ setup_environment() {
 
     # Upgrade pip first
     log_info "Upgrading pip..."
-    if ! python -m pip install --upgrade pip; then
+    if ! python3 -m pip install --upgrade pip; then
         log_error "Failed to upgrade pip"
         exit 1
     fi
 
     # Install PyTorch CPU version first (required for auto-gptq)
-    log_info "Installing PyTorch (CPU version)..."
-    if ! python -m pip install torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu; then
-        log_error "Failed to install PyTorch"
-        exit 1
-    fi
+    #log_info "Installing PyTorch (CPU version)..."
+    #if ! python3 -m pip install torch==2.1.0 --index-url https://download.pytorch.org/whl/cpu --retries 5 --timeout 120 --no-cache-dir; then
+    #    log_error "Failed to install PyTorch"
+    #    exit 1
+    #fi
 
-    # Install required packages
+    # Verify PyTorch installation
+    #log_info "Verifying PyTorch installation..."
+    #if ! python3 -c "import torch; print(f'PyTorch {torch.__version__} installed successfully')" ; then
+    #    log_error "PyTorch installation verification failed"
+    #    exit 1
+    #fi
+
+    # Install required packages excluding torch (which is already installed)
     if [ -f "$REQUIREMENTS_FILE" ]; then
         log_info "Installing requirements..."
-        if ! python -m pip install -r "$REQUIREMENTS_FILE"; then
+        # Create a temporary requirements file without the torch line
+        TMP_REQUIREMENTS=$(mktemp)
+        grep -v "^torch==" "$REQUIREMENTS_FILE" > "$TMP_REQUIREMENTS"
+        
+        if ! python3 -m pip install -r "$TMP_REQUIREMENTS" --retries 5 --timeout 120 --no-cache-dir; then
             log_error "Failed to install requirements"
+            rm "$TMP_REQUIREMENTS"
             exit 1
         fi
+        rm "$TMP_REQUIREMENTS"
     else
         log_error "requirements.txt not found at $REQUIREMENTS_FILE"
         exit 1
@@ -263,9 +276,11 @@ start_server() {
         exit 1
     fi
 
+    export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
+
     # Run FastAPI server using python
     log_info "Starting FastAPI server..."
-    exec python -m uvicorn app.server:app --reload --host 0.0.0.0 --port 8000
+    exec python3 -m uvicorn app.server:app --reload --host 0.0.0.0 --port 8000
 }
 
 # Main script logic

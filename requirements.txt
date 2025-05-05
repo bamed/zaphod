@@ -1,26 +1,17 @@
-# Core Framework Dependencies
-# FastAPI and its dependencies (verified compatible with Python 3.11-3.13)
-fastapi>=0.104.1,<1.0.0
-uvicorn[standard]>=0.24.0,<1.0.0
-starlette>=0.27.0,<1.0.0  # Explicitly set for rate limiting features
-pydantic>=2.5.2,<3.0.0    # Data validation and settings management
-
-# ML Stack - Pinned versions for stability and compatibility
-# Note: torch is installed separately via zaphod_bedrock.sh
-transformers==4.35.2      # Last verified version with our stack
-accelerate==0.24.1       # Matches transformers version
-auto-gptq==0.4.2         # Stable version compatible with torch 2.1.0
-
-# AWS SDK
-boto3>=1.29.0,<2.0.0     # AWS SDK
-botocore>=1.32.0,<2.0.0  # AWS SDK Core
-
-# API Utilities
-python-multipart>=0.0.6   # For handling form data/file uploads
-python-dotenv>=1.0.0      # For environment variable management
-
-# Monitoring and Health Checks
-prometheus_client>=0.18.0  # For metrics collection
-
-# Additional Dependencies for Rate Limiting
-redis>=5.0.1             # If using Redis for rate limiting
+numpy<2
+protobuf
+sentencepiece
+bitsandbytes
+torch
+torchvision
+torchaudio
+transformers
+accelerate
+fastapi
+pydantic
+uvicorn
+optimum
+frida
+boto3
+botocore
+python-dotenv
