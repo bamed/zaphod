@@ -36,9 +36,10 @@ def get_model_registry() -> ModelRegistry:
     from server import registry
     return registry
 
+from auth import ApiKeyValidator
+
 def get_api_validator() -> ApiKeyValidator:
-    from server import api_key_validator
-    return api_key_validator
+    return ApiKeyValidator()
 
 @router.get("/health", response_model=HealthStatus)
 async def health_check(

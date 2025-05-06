@@ -4,27 +4,54 @@ import json
 import sys
 import os
 from pathlib import Path
+from typing import Dict, Any
 
 # Initialize logging first
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Setup separate loggers
+api_logger = logging.getLogger('api')
+bedrock_logger = logging.getLogger('bedrock')
+
+# Configure loggers
+for logger_name, log_file in [
+    ('api', 'logs/api.log'),
+    ('bedrock', 'logs/bedrock.log')
+]:
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.DEBUG)
+    
+    # File handler
+    fh = logging.FileHandler(log_file)
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logger.addHandler(fh)
+
 # Third-party
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi import Request, Response
 
 # Local
-from auth import ApiKey, ApiKeyValidator, verify_api_key
+from auth import ApiKeyValidator, verify_api_key, ApiKey, api_key_header
 from health import router as health_router
 from middleware import RequestIDMiddleware, request_id_context
 from model_registry import ModelRegistry
 from settings import Settings
 from rate_limiter import RateLimiter
 from schemas import (
-    GenerateRequest,
-    RenameFunctionRequest,
+    ChatRequest,
     AnalyzeFunctionRequest,
-    ChatRequest
+    AlgorithmDetectionRequest,
+    RenameFunctionRequest,
+    GenerateRequest,
+    ChatResponse,
+    AnalysisResponse,
+    AlgorithmDetectionResponse,
+    RenameFunctionResponse,
+    GenerateResponse
 )
 
 from dotenv import load_dotenv
@@ -70,6 +97,43 @@ app.add_middleware(
 # Include routers
 app.include_router(health_router)
 
+# Add middleware for API logging
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    # Log request
+    body = await request.body()
+    api_logger.debug(f"Request {request_id_context.get()}:")
+    api_logger.debug(f"Method: {request.method}")
+    api_logger.debug(f"URL: {request.url}")
+    api_logger.debug(f"Headers: {dict(request.headers)}")
+    api_logger.debug(f"Body: {body.decode()}")
+
+    # Get response
+    response = await call_next(request)
+
+    # Log response
+    api_logger.debug(f"Response {request_id_context.get()}:")
+    api_logger.debug(f"Status: {response.status_code}")
+    api_logger.debug(f"Headers: {dict(response.headers)}")
+    
+    # Get response body - need to handle streaming responses
+    response_body = b""
+    async for chunk in response.body_iterator:
+        response_body += chunk
+    api_logger.debug(f"Body: {response_body.decode()}")
+
+    return Response(
+        content=response_body,
+        status_code=response.status_code,
+        headers=dict(response.headers),
+        media_type=response.media_type
+    )
+
+@app.post("/chat", response_model=ChatResponse)
+@app.post("/analyze", response_model=AnalysisResponse)
+@app.post("/detect_algorithm", response_model=AlgorithmDetectionResponse)
+@app.post("/rename_function", response_model=RenameFunctionResponse)
+@app.post("/generate", response_model=GenerateResponse)
 @app.post("/generate")
 async def generate_text(
     request: GenerateRequest,
@@ -112,7 +176,6 @@ async def rename_function(
     logger.info(f"Processing rename request {request_id}")
     
     try:
-        # Generate text
         result = await registry.generate(
             prompt=f"Based on this decompiled function code, suggest a clear and descriptive function name:\n\n{request.function_code}",
             max_length=request.max_length,
@@ -120,8 +183,8 @@ async def rename_function(
             provider=request.model_name if request.model_name != "default" else None
         )
         
-        new_name = parse_function_name(result)
-        return {"new_name": new_name}
+        new_name = parse_bedrock_response(result).split('\n')[0].strip()
+        return {"new_name": new_name if new_name else "unnamed_function"}
 
     except Exception as e:
         logger.error(f"Error processing rename request {request_id}: {str(e)}")
@@ -136,7 +199,6 @@ async def analyze_function(
     logger.info(f"Processing analysis request {request_id}")
     
     try:
-        # Generate text
         result = await registry.generate(
             prompt=f"Analyze this decompiled function and provide a concise summary:\n\n{request.function_code}",
             max_length=request.max_length,
@@ -144,8 +206,8 @@ async def analyze_function(
             provider=request.model_name if request.model_name != "default" else None
         )
         
-        summary = parse_function_summary(result)
-        return {"summary": summary}
+        summary = parse_bedrock_response(result)
+        return {"summary": summary if summary else "No summary available"}
 
     except Exception as e:
         logger.error(f"Error processing analysis request {request_id}: {str(e)}")
@@ -160,7 +222,6 @@ async def chat(
     logger.info(f"Processing chat request {request_id}")
     
     try:
-        # Generate text
         result = await registry.generate(
             prompt=request.prompt,
             max_length=request.max_length,
@@ -168,46 +229,54 @@ async def chat(
             provider=request.model_name if request.model_name != "default" else None
         )
         
-        return {"summary": result}
+        return {"summary": parse_bedrock_response(result)}
 
     except Exception as e:
         logger.error(f"Error processing chat request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-def parse_function_summary(model_output):
+@app.post("/detect_algorithm")
+async def detect_algorithm(
+    request: AlgorithmDetectionRequest,
+    api_key: ApiKey = Depends(verify_api_key)
+):
+    request_id = request_id_context.get()
+    logger.info(f"Processing algorithm detection request {request_id}")
+    
     try:
-        text = model_output[0]['generated_text'].strip()
+        result = await registry.generate(
+            prompt=f"Analyze this code and identify what algorithm it implements. Be specific about the type of algorithm and your confidence level:\n\n{request.function_code}",
+            max_length=request.max_length,
+            temperature=0.7,
+            provider=request.model_name if request.model_name != "default" else None
+        )
         
-        # Find last { to extract a possibly incomplete JSON block
-        last_brace = text.rfind('{')
-        if last_brace == -1:
-            logger.warning("No JSON start found.")
-            return "No summary available."
-
-        possible_json = text[last_brace:].strip()
-
-        # Try to brute-force fix missing closing quotes/brackets
-        if not possible_json.endswith('}'):
-            possible_json += '"}' if possible_json.count('"') % 2 == 1 else '}'
-
-        parsed = json.loads(possible_json)
-        if "summary" in parsed:
-            return parsed["summary"].strip()
-
-        logger.warning("Parsed block missing 'summary'")
-        return "No summary available."
+        parsed_text = parse_bedrock_response(result)
+        if parsed_text:
+            return {
+                "algorithm_detected": parsed_text.split('\n')[0],
+                "confidence": "medium",  # This could be enhanced with confidence parsing
+                "notes": parsed_text
+            }
+        
+        return {
+            "algorithm_detected": "unknown",
+            "confidence": "low",
+            "notes": "Failed to analyze algorithm"
+        }
 
     except Exception as e:
-        logger.error(f"Parser Error: {e}")
-        return "No summary available."
+        logger.error(f"Error processing algorithm detection request {request_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
 
-def parse_function_name(model_output):
+def parse_bedrock_response(result: Dict[str, Any]) -> str:
+    """Parse response from Bedrock or other providers into a consistent format."""
     try:
-        if isinstance(model_output, dict):
-            return model_output.get('new_name', '').strip()
-        elif isinstance(model_output, str):
-            return model_output.strip().split('\n')[0].strip()
-        return "unnamed_function"
+        if isinstance(result, dict):
+            if 'outputs' in result and result['outputs']:
+                return result['outputs'][0].get('text', '').strip()
+            return result.get('generated_text', '').strip()
+        return ''
     except Exception as e:
-        logger.error(f"Error parsing function name: {e}")
-        return "unnamed_function"
+        logger.error(f"Error parsing model output: {str(e)}")
+        return ''

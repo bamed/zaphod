@@ -15,6 +15,24 @@ from utils.exceptions import ModelProviderError, ConfigurationError, ValidationE
 from utils.metrics import MetricsCollector
 from utils.logging_config import setup_logging
 import asyncio
+import logging
+import json
+from pathlib import Path
+
+# Setup Bedrock logger
+bedrock_logger = logging.getLogger('bedrock')
+bedrock_logger.setLevel(logging.DEBUG)
+
+# Ensure logs directory exists
+log_dir = Path(__file__).parent / 'logs'
+log_dir.mkdir(exist_ok=True)
+
+# Add file handler for Bedrock logging
+fh = logging.FileHandler(log_dir / 'bedrock.log')
+fh.setLevel(logging.DEBUG)
+formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(message)s')
+fh.setFormatter(formatter)
+bedrock_logger.addHandler(fh)
 
 class RetryDecorator:
     def __init__(self, max_retries: int = 3, base_delay: float = 1.0):
@@ -320,6 +338,44 @@ class ModelRegistry:
             for name, provider in self.providers.items()
         }
 
+    # In your ModelRegistry class, before the Bedrock call:
+    # async def generate(self, prompt, max_length, temperature=0.7, provider=None, stop_sequences=None):
+    #     bedrock_logger.debug("=== Bedrock Request ===")
+    #     bedrock_logger.debug(f"Provider: {provider}")
+    #     bedrock_logger.debug(f"Prompt:\n{prompt}")
+    #     bedrock_logger.debug(f"Parameters: max_length={max_length}, temperature={temperature}, stop_sequences={stop_sequences}")
+    #
+    #     try:
+    #         # Your existing Bedrock invoke_model call
+    #         response = await self.bedrock_client.invoke_model(...)  # your existing call
+    #
+    #         bedrock_logger.debug("=== Bedrock Raw Response ===")
+    #         bedrock_logger.debug(f"Response type: {type(response)}")
+    #         bedrock_logger.debug(f"Raw response: {response}")
+    #
+    #         try:
+    #             if hasattr(response, 'body'):
+    #                 body = await response.body()
+    #                 bedrock_logger.debug(f"Response body: {body}")
+    #
+    #                 if isinstance(body, bytes):
+    #                     decoded_body = body.decode('utf-8')
+    #                     bedrock_logger.debug(f"Decoded body: {decoded_body}")
+    #
+    #                     try:
+    #                         json_response = json.loads(decoded_body)
+    #                         bedrock_logger.debug(f"Parsed JSON: {json.dumps(json_response, indent=2)}")
+    #                     except json.JSONDecodeError as e:
+    #                         bedrock_logger.error(f"Failed to parse JSON: {e}")
+    #         except Exception as e:
+    #             bedrock_logger.error(f"Error processing response: {str(e)}")
+    #
+    #         return response
+    #
+    #     except Exception as e:
+    #         bedrock_logger.error(f"Bedrock Error: {str(e)}", exc_info=True)
+    #         raise
+
     async def generate(
         self,
         prompt: str,
@@ -330,6 +386,11 @@ class ModelRegistry:
     ) -> Dict[str, Any]:
         """Generate text using the specified or default provider"""
         try:
+            bedrock_logger.debug("=== Bedrock Request ===")
+            bedrock_logger.debug(f"Provider: {provider}")
+            bedrock_logger.debug(f"Prompt:\n{prompt}")
+            bedrock_logger.debug(f"Parameters: max_length={max_length}, temperature={temperature}")
+
             # Get the appropriate provider
             if provider:
                 model_provider = self.get_provider(provider)
@@ -348,10 +409,13 @@ class ModelRegistry:
                 **kwargs
             )
 
+            bedrock_logger.debug("=== Bedrock Response ===")
+            bedrock_logger.debug(f"Raw response: {result}")
+
             return result
 
         except Exception as e:
-            self.logger.error(f"Generation failed: {str(e)}")
+            bedrock_logger.error(f"Generation failed: {str(e)}", exc_info=True)
             raise ModelProviderError(f"Generation failed: {str(e)}")
 
     async def cleanup(self):

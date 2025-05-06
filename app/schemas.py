@@ -28,11 +28,34 @@ class RenameFunctionRequest(BaseModel):
     max_length: conint(gt=0, le=4096) = 20
 
 class AnalyzeFunctionRequest(BaseModel):
-    model_name: str = "default"
+    model_name: str
     function_code: str
-    max_length: conint(gt=0, le=4096) = 100
+    max_length: int = 100
 
 class ChatRequest(BaseModel):
-    model_name: str = "default"
     prompt: str
-    max_length: conint(gt=0, le=4096) = 1000
+    model_name: str
+    function_code: str
+    max_length: int = 1000
+
+class AlgorithmDetectionRequest(BaseModel):
+    model_name: str
+    function_code: str
+    max_length: int = 500
+
+class ChatResponse(BaseModel):
+    summary: str
+
+class AnalysisResponse(BaseModel):
+    summary: str
+
+class AlgorithmDetectionResponse(BaseModel):
+    algorithm_detected: str
+    confidence: str
+    notes: str
+
+class RenameFunctionResponse(BaseModel):
+    new_name: str
+
+class GenerateResponse(BaseModel):
+    generated_text: str
