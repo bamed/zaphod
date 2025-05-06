@@ -5,6 +5,14 @@ set -e
 set -u
 
 # Initialize variables with default values and handle spaces in paths
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )"
+APP_DIR="$SCRIPT_DIR"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+
+# Create logs directory if it doesn't exist
+LOGS_DIR="$PROJECT_ROOT/logs"
+mkdir -p "$LOGS_DIR"
+
 CONFIG_FILE="./config/config.json"
 VENV_DIR="$(pwd)/.venv"
 REQUIREMENTS_FILE="./requirements.txt"
@@ -277,10 +285,11 @@ start_server() {
     fi
 
     export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
+    cd "$APP_DIR"  # Make sure you're in the /app directory
 
     # Run FastAPI server using python
     log_info "Starting FastAPI server..."
-    exec python3 -m uvicorn app.server:app --reload --host 0.0.0.0 --port 8000
+    exec python3 -m uvicorn server:app --reload --host 0.0.0.0 --port 8000
 }
 
 # Main script logic

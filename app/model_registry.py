@@ -81,8 +81,19 @@ class ModelProvider(ABC):
 class BedrockProvider(ModelProvider):
     def _initialize_provider(self) -> None:
         try:
-            self.client = boto3.client('bedrock-runtime')
-            self.logger.info("Initialized Bedrock provider")
+            region = os.getenv('AWS_REGION')
+            if not region:
+                region = self.config.get('config', {}).get('region')
+                if region and region.startswith('${'):
+                    region = None
+
+            self.client = boto3.client(
+                'bedrock-runtime',
+                region_name=region,
+                aws_access_key_id=os.getenv('AWS_ACCESS_KEY_ID'),
+                aws_secret_access_key=os.getenv('AWS_SECRET_ACCESS_KEY')
+            )
+            self.logger.info(f"Initialized Bedrock provider in region {region}")
         except Exception as e:
             self.logger.error(f"Failed to initialize Bedrock provider: {e}")
             raise ModelProviderError(f"Bedrock initialization failed: {str(e)}", "bedrock")
@@ -180,9 +191,18 @@ class ModelRegistry:
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load and validate configuration"""
         try:
+            # Get absolute path to app directory
+            app_dir = os.path.dirname(os.path.abspath(__file__))
+        
+            # Handle both absolute and relative paths
+            if not os.path.isabs(config_path):
+                config_path = os.path.join(app_dir, config_path)
+        
             config_path = os.path.abspath(config_path)
-            if not config_path.startswith(os.path.abspath('config/')):
-                raise ConfigurationError("Invalid config path")
+        
+            # Verify the path is within the app directory
+            if not config_path.startswith(app_dir):
+                raise ConfigurationError("Config file must be within the app directory")
 
             if not os.path.exists(config_path):
                 self.logger.warning(f"Config file not found at {config_path}, using defaults")
@@ -197,7 +217,7 @@ class ModelRegistry:
 
             # Merge with defaults
             merged_config = self._merge_configs(DEFAULT_CONFIG, config)
-
+        
             # Validate against schema
             validate(instance=merged_config, schema=CONFIG_SCHEMA)
 

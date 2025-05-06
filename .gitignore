@@ -1,12 +1,14 @@
-# Environment variables and secrets
-.env
+app/.venv/
+app/*.pid
+app/__pycache__/
+app/.env
 *.env
 .env.*
-config/config.json
+app/config/config.json
 config/*.json
-!config/sample_config.json
-!config/aws_credentials_config.json
-!config/IAMPolicyConfiguration.json
+!app/config/sample_config.json
+!app/config/aws_credentials_config.json
+!app/config/IAMPolicyConfiguration.json
 
 # Python virtual environment
 .venv/

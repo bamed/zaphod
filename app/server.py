@@ -30,6 +30,11 @@ sys.path.append(str(project_root))
 from dotenv import load_dotenv
 load_dotenv()
 
+# Add debug logging for environment variables
+logger.info(f"AWS Region: {os.getenv('AWS_REGION')}")
+logger.info(f"AWS Access Key ID exists: {bool(os.getenv('AWS_ACCESS_KEY_ID'))}")
+logger.info(f"AWS Secret Access Key exists: {bool(os.getenv('AWS_SECRET_ACCESS_KEY'))}")
+
 # Initialize logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -40,7 +45,7 @@ settings = Settings()
 # Initialize components
 app = FastAPI(title="AI Text Generation API")
 rate_limiter = RateLimiter()
-registry = ModelRegistry()
+registry = ModelRegistry(config_path="config/config.json")  # Relative to app directory
 api_key_validator = ApiKeyValidator()
 
 
