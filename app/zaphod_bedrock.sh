@@ -279,13 +279,12 @@ setup_environment() {
 # Function to start the server
 start_server() {
     # Check if the app directory and server.py exist
-    if [ ! -d "./app" ] || [ ! -f "./app/server.py" ]; then
-        log_error "app/server.py not found"
+    if  [ ! -f "./server.py" ]; then
+        log_error "./server.py not found"
         exit 1
     fi
 
     export PYTHONPATH="$(pwd):${PYTHONPATH:-}"
-    cd "$APP_DIR"  # Make sure you're in the /app directory
 
     # Run FastAPI server using python
     log_info "Starting FastAPI server..."

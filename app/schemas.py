@@ -1,6 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, conint, confloat, validator
-from .utils.constants import ProviderType
+from utils.constants import ProviderType
 
 class GenerateRequest(BaseModel):
     prompt: str

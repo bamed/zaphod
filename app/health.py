@@ -8,9 +8,9 @@ from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
 # Local
-from .rate_limiter import RateLimiter
-from .model_registry import ModelRegistry
-from .auth import ApiKeyValidator
+from rate_limiter import RateLimiter
+from model_registry import ModelRegistry
+from auth import ApiKeyValidator
 
 # Initialize logger
 logger = logging.getLogger(__name__)
@@ -29,15 +29,15 @@ router = APIRouter()
 
 # Get component instances
 def get_rate_limiter() -> RateLimiter:
-    from .server import rate_limiter
+    from server import rate_limiter
     return rate_limiter
 
 def get_model_registry() -> ModelRegistry:
-    from .server import registry
+    from server import registry
     return registry
 
 def get_api_validator() -> ApiKeyValidator:
-    from .server import api_key_validator
+    from server import api_key_validator
     return api_key_validator
 
 @router.get("/health", response_model=HealthStatus)

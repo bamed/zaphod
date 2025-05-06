@@ -10,12 +10,10 @@ import boto3
 from jsonschema import validate
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
-import sys
-sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
-from .utils.constants import VERSION, DEFAULT_CONFIG, CONFIG_SCHEMA, ProviderType
-from .utils.exceptions import ModelProviderError, ConfigurationError, ValidationError
-from .utils.metrics import MetricsCollector
-from .utils.logging_config import setup_logging
+from utils.constants import VERSION, DEFAULT_CONFIG, CONFIG_SCHEMA, ProviderType
+from utils.exceptions import ModelProviderError, ConfigurationError, ValidationError
+from utils.metrics import MetricsCollector
+from utils.logging_config import setup_logging
 import asyncio
 
 class RetryDecorator:
@@ -113,15 +111,23 @@ class BedrockProvider(ModelProvider):
             model_id = kwargs.get('model_id', self.config['models']['default'])
             temp = temperature if temperature is not None else 0.7
 
+            # Format prompt for Mistral model
+            formatted_prompt = f"<s>[INST] {prompt} [/INST]"
+
+            # Create request body according to Mistral's expected format
+            request_body = {
+                "prompt": formatted_prompt,
+                "max_tokens": max_tokens,
+                "temperature": temp,
+                "top_p": 0.9,
+                "top_k": 50
+            }
+
             response = self.client.invoke_model(
                 modelId=model_id,
                 contentType='application/json',
                 accept='application/json',
-                body=json.dumps({
-                    'prompt': prompt,
-                    'max_tokens': max_tokens,
-                    'temperature': temp
-                })
+                body=json.dumps(request_body)
             )
 
             result = json.loads(response['body'].read())

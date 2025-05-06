@@ -5,39 +5,46 @@ import sys
 import os
 from pathlib import Path
 
+# Initialize logging first
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
 # Third-party
 from fastapi import FastAPI, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 
 # Local
-from .auth import ApiKey, ApiKeyValidator, verify_api_key
-from .health import router as health_router
-from .middleware import RequestIDMiddleware, request_id_context
-from .model_registry import ModelRegistry
-from .settings import Settings
-from .rate_limiter import RateLimiter
-from .schemas import (
+from auth import ApiKey, ApiKeyValidator, verify_api_key
+from health import router as health_router
+from middleware import RequestIDMiddleware, request_id_context
+from model_registry import ModelRegistry
+from settings import Settings
+from rate_limiter import RateLimiter
+from schemas import (
     GenerateRequest,
     RenameFunctionRequest,
     AnalyzeFunctionRequest,
     ChatRequest
 )
 
-# Add the project root to sys.path
-project_root = Path(__file__).parent
-sys.path.append(str(project_root))
-
 from dotenv import load_dotenv
 load_dotenv()
 
-# Add debug logging for environment variables
+# Now we can use logger for environment variables
 logger.info(f"AWS Region: {os.getenv('AWS_REGION')}")
 logger.info(f"AWS Access Key ID exists: {bool(os.getenv('AWS_ACCESS_KEY_ID'))}")
 logger.info(f"AWS Secret Access Key exists: {bool(os.getenv('AWS_SECRET_ACCESS_KEY'))}")
 
+# Rest of your code...
+# Add the project root to sys.path
+project_root = Path(__file__).parent
+sys.path.append(str(project_root))
+
+# Add debug logging for environment variables
+
+
 # Initialize logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+
 
 # Load settings
 settings = Settings()
