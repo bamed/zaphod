@@ -22,7 +22,8 @@ def getNewName(decompiled_code):
     payload = {
         "model_name": "default",
         "function_code": decompiled_code,
-        "max_length": 20
+        "max_length": 20,
+        "prompt": "Based on this decompiled function code, suggest a clear and descriptive function name that reflects its purpose. Return only the suggested name without explanation."
     }
 
     try:

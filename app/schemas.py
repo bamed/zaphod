@@ -23,9 +23,10 @@ class GenerateRequest(BaseModel):
 
 
 class RenameFunctionRequest(BaseModel):
-    model_name: str = "default"
+    model_name: str
     function_code: str
-    max_length: conint(gt=0, le=4096) = 20
+    max_length: conint(gt=0, le=4096) = 50
+    prompt: Optional[str] = "Based on this decompiled function code, suggest a clear and descriptive function name that reflects its purpose. Return only the suggested name without explanation."
 
 class AnalyzeFunctionRequest(BaseModel):
     model_name: str
