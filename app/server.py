@@ -166,53 +166,101 @@ async def generate_text(
         logger.error(f"Error processing request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 # ... existing imports and setup ...
+import re
+import json
+
+def extract_last_json(text: str) -> Dict[str, Any]:
+    """Extract the last valid JSON object from text, allowing for incomplete ones."""
+    json_pattern = r'({[^}]*})'
+    matches = list(re.finditer(json_pattern, text))
+    
+    if not matches:
+        return None
+        
+    for match in reversed(matches):
+        try:
+            return json.loads(match.group(1))
+        except json.JSONDecodeError:
+            continue
+    return None
+
+def parse_bedrock_response(result: Dict[str, Any]) -> str:
+    """Parse response from Bedrock into a consistent format."""
+    try:
+        if isinstance(result, dict):
+            if 'outputs' in result and result['outputs']:
+                return result['outputs'][0].get('text', '').strip()
+            return result.get('generated_text', '').strip()
+        return ''
+    except Exception as e:
+        logger.error(f"Error parsing model output: {str(e)}")
+        return ''
+
+def parse_rename_response(result: Dict[str, Any]) -> Dict[str, str]:
+    try:
+        if not isinstance(result, dict) or 'outputs' not in result or not result['outputs']:
+            return {"new_name": "unnamed_function"}
+        
+        text = result['outputs'][0].get('text', '').strip()
+        if not text:
+            return {"new_name": "unnamed_function"}
+            
+        # Clean the name
+        name = text.split('(')[0].strip()  # Remove parameters
+        clean_name = ''.join(c for c in name if c.isalnum() or c == '_')
+        
+        if not clean_name:
+            return {"new_name": "unnamed_function"}
+        if clean_name[0].isdigit():
+            clean_name = 'func_' + clean_name
+            
+        return {"new_name": clean_name}
+
+    except Exception as e:
+        logger.error(f"Error parsing rename response: {str(e)}")
+        return {"new_name": "unnamed_function"}
 
 @app.post("/rename_function", response_model=RenameFunctionResponse)
-async def rename_function(
-    request: RenameFunctionRequest,
-    api_key: ApiKey = Depends(verify_api_key)
-):
+async def rename_function(request: RenameFunctionRequest, api_key: ApiKey = Depends(verify_api_key)):
     request_id = request_id_context.get()
     logger.info(f"Processing rename request {request_id}")
     
     try:
-        result = await registry.generate(
-            prompt=request.prompt,
-            max_length=request.max_length,
-            temperature=0.7,
-            provider=request.model_name if request.model_name != "default" else None,
-            stop_sequences=["\n", "```"]  # Stop at newlines or code blocks
+        # Create prompt for function renaming
+        prompt = (
+            "Analyze this decompiled function and suggest a clear, descriptive name that reflects its purpose.\n"
+            "The name must be a valid C function name (alphanumeric and underscores only, cannot start with a number).\n"
+            "Return only the name, no explanation.\n\n"
+            f"Function code:\n{request.function_code}"
         )
         
-        new_name = parse_bedrock_response(result)
-        # Clean up the name
-        new_name = new_name.strip().strip('`"\' ')
+        result = await registry.generate(
+            prompt=prompt,
+            max_length=50,  # Keep names reasonably short
+            temperature=0.7,
+            provider=request.model_name if request.model_name != "default" else None
+        )
         
-        if not new_name or len(new_name) > 50:  # reasonable max length for function name
-            return {"new_name": "unnamed_function"}
-            
-        # Ensure valid function name
-        new_name = ''.join(c for c in new_name if c.isalnum() or c == '_')
-        if not new_name[0].isalpha() and new_name[0] != '_':
-            new_name = 'func_' + new_name
-            
-        return {"new_name": new_name}
+        return parse_rename_response(result)
 
     except Exception as e:
         logger.error(f"Error processing rename request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/analyze")
-async def analyze_function(
-    request: AnalyzeFunctionRequest,
-    api_key: ApiKey = Depends(verify_api_key)
-):
+@app.post("/analyze", response_model=AnalysisResponse)
+async def analyze_function(request: AnalyzeFunctionRequest, api_key: ApiKey = Depends(verify_api_key)):
     request_id = request_id_context.get()
     logger.info(f"Processing analysis request {request_id}")
     
     try:
+        prompt = (
+            "Analyze this decompiled function and provide a concise summary of its functionality.\n"
+            "Focus on what the function does, its inputs/outputs, and any notable algorithms or patterns.\n\n"
+            f"Function code:\n{request.function_code}"
+        )
+        
         result = await registry.generate(
-            prompt=f"Analyze this decompiled function and provide a concise summary:\n\n{request.function_code}",
+            prompt=prompt,
             max_length=request.max_length,
             temperature=0.7,
             provider=request.model_name if request.model_name != "default" else None
@@ -225,70 +273,52 @@ async def analyze_function(
         logger.error(f"Error processing analysis request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/chat")
-async def chat(
-    request: ChatRequest,
-    api_key: ApiKey = Depends(verify_api_key)
-):
+@app.post("/chat", response_model=ChatResponse)
+async def chat(request: ChatRequest, api_key: ApiKey = Depends(verify_api_key)):
     request_id = request_id_context.get()
     logger.info(f"Processing chat request {request_id}")
     
     try:
+        prompt = (
+            f"Answer the following question about this decompiled function:\n"
+            f"Question: {request.user_question}\n\n"
+            f"Function code:\n{request.function_code}"
+        )
+        
         result = await registry.generate(
-            prompt=request.prompt,
+            prompt=prompt,
             max_length=request.max_length,
             temperature=0.7,
             provider=request.model_name if request.model_name != "default" else None
         )
         
-        return {"summary": parse_bedrock_response(result)}
+        return {"response": parse_bedrock_response(result)}
 
     except Exception as e:
         logger.error(f"Error processing chat request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
 
-@app.post("/detect_algorithm")
-async def detect_algorithm(
-    request: AlgorithmDetectionRequest,
-    api_key: ApiKey = Depends(verify_api_key)
-):
+@app.post("/detect_algorithm", response_model=AlgorithmDetectionResponse)
+async def detect_algorithm(request: AlgorithmDetectionRequest, api_key: ApiKey = Depends(verify_api_key)):
     request_id = request_id_context.get()
     logger.info(f"Processing algorithm detection request {request_id}")
     
     try:
+        prompt = (
+            "Analyze this decompiled function and identify any known algorithms or patterns.\n"
+            "Provide your response in this format:\n"
+            "Algorithm: [name of algorithm]\n"
+            "Confidence: [high/medium/low]\n"
+            "Notes: [detailed explanation]\n\n"
+            f"Function code:\n{request.function_code}"
+        )
+        
         result = await registry.generate(
-            prompt=f"Analyze this code and identify what algorithm it implements. Be specific about the type of algorithm and your confidence level:\n\n{request.function_code}",
+            prompt=prompt,
             max_length=request.max_length,
             temperature=0.7,
             provider=request.model_name if request.model_name != "default" else None
         )
-        
-        parsed_text = parse_bedrock_response(result)
-        if parsed_text:
-            return {
-                "algorithm_detected": parsed_text.split('\n')[0],
-                "confidence": "medium",  # This could be enhanced with confidence parsing
-                "notes": parsed_text
-            }
-        
-        return {
-            "algorithm_detected": "unknown",
-            "confidence": "low",
-            "notes": "Failed to analyze algorithm"
-        }
 
-    except Exception as e:
-        logger.error(f"Error processing algorithm detection request {request_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-def parse_bedrock_response(result: Dict[str, Any]) -> str:
-    """Parse response from Bedrock or other providers into a consistent format."""
-    try:
-        if isinstance(result, dict):
-            if 'outputs' in result and result['outputs']:
-                return result['outputs'][0].get('text', '').strip()
-            return result.get('generated_text', '').strip()
-        return ''
-    except Exception as e:
-        logger.error(f"Error parsing model output: {str(e)}")
-        return ''
+        response = parse_algorithm_response(result)
+        return response

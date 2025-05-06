@@ -19,24 +19,20 @@ def decompile_function(func):
     return None
 
 def detect_algorithm(decompiled_code):
-    """Sends the decompiled code to the API for algorithm detection."""
     try:
         payload = {
             "model_name": "default",
             "function_code": decompiled_code,
             "max_length": 500
         }
-        
         response = make_api_request("/detect_algorithm", payload)
         if not response:
             return None
-            
         return {
             "algorithm": response.get("algorithm_detected", "unknown"),
             "confidence": response.get("confidence", "unknown"),
             "notes": response.get("notes", "none")
         }
-        
     except Exception as e:
         print("Algorithm detection failed: %s" % str(e))
         return None

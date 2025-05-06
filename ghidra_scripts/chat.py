@@ -33,15 +33,13 @@ def decompile_current_function():
 def chat_with_function(prompt, function_code):
     try:
         payload = {
-            "prompt": prompt,
+            "user_question": prompt,  # Renamed to be more descriptive
             "model_name": "default",
             "function_code": function_code,
-            "max_length": 1000  # reasonable default
+            "max_length": 1000
         }
-
         response = make_api_request("/chat", payload)
         return response
-
     except Exception as e:
         print("Chat request failed: %s" % str(e))
         return None

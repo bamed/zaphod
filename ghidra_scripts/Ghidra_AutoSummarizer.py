@@ -36,19 +36,16 @@ def sanitize_code(code):
     return sanitized
 
 def get_function_summary(code):
-    """Gets a summary of the function from the API."""
     try:
         payload = {
             "model_name": "default",
             "function_code": code,
             "max_length": 100
         }
-        
         response = make_api_request("/analyze", payload)
         if response and "summary" in response:
             return response["summary"]
         return None
-        
     except Exception as e:
         print("Failed to get function summary: %s" % str(e))
         return None

@@ -22,16 +22,13 @@ def getNewName(decompiled_code):
     payload = {
         "model_name": "default",
         "function_code": decompiled_code,
-        "max_length": 20,
-        "prompt": "Based on this decompiled function code, suggest a clear and descriptive function name that reflects its purpose. Return only the suggested name without explanation."
+        "max_length": 20
     }
-
     try:
         response = make_api_request("/rename_function", payload)
         if response and 'new_name' in response:
             return response['new_name']
         return None
-
     except Exception as e:
         print("Exception during rename: %s" % str(e))
         return None
