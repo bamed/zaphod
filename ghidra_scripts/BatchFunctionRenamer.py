@@ -1,16 +1,13 @@
-#@author
+#@author bamed
 #@category ZAPHOD
-#@keybinding
-#@menupath
+#@keybinding 
+#@menupath Tools.ZAPHOD.Batch Rename Functions
 #@toolbar
 
 from ghidra.program.model.listing import FunctionManager
 from ghidra.program.model.symbol import SourceType
 from ghidra.app.decompiler import DecompInterface
-from java.net import URL
-import json
-
-SERVER_URL = "http://localhost:8000/rename_function"
+from zaphod_config import make_api_request
 
 def decompileFunction(func):
     decomplib = DecompInterface()
@@ -27,28 +24,15 @@ def getNewName(decompiled_code):
         "function_code": decompiled_code,
         "max_length": 20
     }
-    payload_bytes = json.dumps(payload).encode('utf-8')
 
     try:
-        url = URL(SERVER_URL)
-        connection = url.openConnection()
-        connection.setRequestMethod("POST")
-        connection.setDoOutput(True)
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.getOutputStream().write(payload_bytes)
-
-        response_code = connection.getResponseCode()
-        if response_code == 200:
-            input_stream = connection.getInputStream()
-            response_text = ''.join([chr(b) for b in input_stream.readAllBytes()])
-            response_json = json.loads(response_text)
-            return response_json['new_name']
-        else:
-            print("Error from server: HTTP {}".format(response_code))
-            return None
+        response = make_api_request("/rename_function", payload)
+        if response and 'new_name' in response:
+            return response['new_name']
+        return None
 
     except Exception as e:
-        print("Exception during rename: {}".format(str(e)))
+        print("Exception during rename: %s" % str(e))
         return None
 
 # === MAIN SCRIPT START ===
@@ -58,6 +42,8 @@ functions = functionManager.getFunctions(True)  # True = forward order
 
 renamed_count = 0
 total_functions = 0
+
+print("Starting batch rename operation...")
 
 for func in functions:
     if monitor.isCancelled():
@@ -79,9 +65,9 @@ for func in functions:
         try:
             func.setName(new_name, SourceType.USER_DEFINED)
             renamed_count += 1
-            print("Renamed: {} -> {}".format(func.getName(), new_name))
+            print("Renamed: %s -> %s" % (func.getName(), new_name))
         except Exception as e:
-            print("Failed to rename function at {}: {}".format(func.getEntryPoint(), e))
+            print("Failed to rename function at %s: %s" % (func.getEntryPoint(), str(e)))
 
 print("\nBatch renaming complete.")
-print("Renamed {} out of {} functions.".format(renamed_count, total_functions))
+print("Renamed %d out of %d functions." % (renamed_count, total_functions))

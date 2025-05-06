@@ -1,73 +1,81 @@
-#@author bamed
+#@author 
 #@category ZAPHOD
-#@keybinding
-#@menupath
-#@toolbar
-# Imports
-from ghidra.program.model.listing import Function
-from ghidra.app.decompiler import DecompInterface
+#@keybinding 
+#@menupath Tools.ZAPHOD.Rename Function
+#@toolbar 
+
 from ghidra.program.model.symbol import SourceType
-from java.net import URL
-import json
+from ghidra.app.decompiler import DecompInterface
+from zaphod_config import make_api_request
 
-SERVER_URL = "http://localhost:8000/rename_function"
+def decompile_function(func):
+    """Decompiles the given function and returns its code."""
+    decompiler = DecompInterface()
+    decompiler.openProgram(currentProgram)
+    
+    result = decompiler.decompileFunction(func, 30, monitor)
+    if result.decompileCompleted():
+        return result.getDecompiledFunction().getC()
+    return None
 
-def decompileFunction(func):
-    decomplib = DecompInterface()
-    decomplib.openProgram(currentProgram)
-    res = decomplib.decompileFunction(func, 60, monitor)
-    if res.decompileCompleted():
-        return res.getDecompiledFunction().getC()
-    else:
-        return None
-
-def getNewName(decompiled_code):
-    payload = {
-        "model_name": "default",
-        "function_code": decompiled_code,
-        "max_length": 200
-    }
-    payload_bytes = json.dumps(payload).encode('utf-8')
-
+def get_suggested_name(decompiled_code):
+    """Gets a suggested name for the function from the API."""
     try:
-        url = URL(SERVER_URL)
-        connection = url.openConnection()
-        connection.setRequestMethod("POST")
-        connection.setDoOutput(True)
-        connection.setRequestProperty("Content-Type", "application/json")
-        connection.getOutputStream().write(payload_bytes)
-
-        response_code = connection.getResponseCode()
-        if response_code == 200:
-            input_stream = connection.getInputStream()
-            response_text = ''.join([chr(b) for b in input_stream.readAllBytes()])
-            print(response_text)
-            response_json = json.loads(response_text)
-            return response_json['new_name']
-        else:
-            print("Error renaming function: HTTP {}".format(response_code))
-            return None
-
+        payload = {
+            "model_name": "default",
+            "function_code": decompiled_code,
+            "max_length": 50  # reasonable length for function name
+        }
+        
+        response = make_api_request("/rename_function", payload)
+        if response and "new_name" in response:
+            return response["new_name"]
+        return None
+        
     except Exception as e:
-        print("Exception during rename: {}".format(str(e)))
+        print("Failed to get suggested name: %s" % str(e))
         return None
 
-# === MAIN SCRIPT START ===
+def main():
+    # Get current function
+    func = getFunctionContaining(currentAddress)
+    if func is None:
+        print("No function found at current address.")
+        return
 
-# <--- THIS IS WHAT WAS MISSING ---> #
-currentFunction = getFunctionContaining(currentAddress)
-if currentFunction is None:
-    print("No function selected.")
-    exit()
-
-decompiled = decompileFunction(currentFunction)
-
-if decompiled:
-    new_name = getNewName(decompiled)
-    if new_name:
-        currentFunction.setName(new_name, SourceType.USER_DEFINED)
-        print("Renamed function to: {}".format(new_name))
+    current_name = func.getName()
+    
+    # Ignore external functions
+    if func.isExternal():
+        print("Cannot rename external function: %s" % current_name)
+        return
+    
+    print("Analyzing function: %s" % current_name)
+    
+    # Get decompiled code
+    decompiled_code = decompile_function(func)
+    if not decompiled_code:
+        print("Failed to decompile function.")
+        return
+        
+    # Get suggested name from API
+    print("Getting suggested name from Zaphod...")
+    new_name = get_suggested_name(decompiled_code)
+    
+    if not new_name:
+        print("Failed to get suggested name.")
+        return
+        
+    # Ask user to confirm the rename
+    if askYesNo("Rename Function", 
+                "Rename '%s' to '%s'?" % (current_name, new_name)):
+        try:
+            func.setName(new_name, SourceType.USER_DEFINED)
+            print("Function renamed successfully to: %s" % new_name)
+        except Exception as e:
+            print("Failed to rename function: %s" % str(e))
     else:
-        print("Failed to get new name from server.")
-else:
-    print("Failed to decompile function.")
+        print("Operation cancelled by user.")
+
+if __name__ == '__main__':
+    main()

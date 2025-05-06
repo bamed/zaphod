@@ -1,106 +1,83 @@
 #@author bamed
 #@category ZAPHOD
 #@keybinding 
-#@menupath 
+#@menupath Tools.ZAPHOD.Detect Algorithm
 #@toolbar 
 
 import json
-import sys
-
 from ghidra.app.decompiler import DecompInterface
-from java.net import URL
-from java.io import BufferedReader, InputStreamReader, OutputStreamWriter
+from zaphod_config import make_api_request
 
-API_URL = "http://localhost:8000/detect_algorithm"  # <-- adjust to match your server address
+def decompile_function(func):
+    """Decompiles the given function and returns its code."""
+    decompiler = DecompInterface()
+    decompiler.openProgram(currentProgram)
+    
+    result = decompiler.decompileFunction(func, 30, monitor)
+    if result.decompileCompleted():
+        return result.getDecompiledFunction().getC()
+    return None
 
-def extract_json(text):
-    """Extracts the last JSON object from a text blob."""
-    last_json_start = text.rfind('{')
-    if last_json_start == -1:
-        raise ValueError("No JSON object found in response.")
+def detect_algorithm(decompiled_code):
+    """Sends the decompiled code to the API for algorithm detection."""
+    try:
+        payload = {
+            "model_name": "default",
+            "function_code": decompiled_code,
+            "max_length": 500
+        }
+        
+        response = make_api_request("/detect_algorithm", payload)
+        if not response:
+            return None
+            
+        return {
+            "algorithm": response.get("algorithm_detected", "unknown"),
+            "confidence": response.get("confidence", "unknown"),
+            "notes": response.get("notes", "none")
+        }
+        
+    except Exception as e:
+        print("Algorithm detection failed: %s" % str(e))
+        return None
 
-    open_braces = 0
-    end_pos = -1
+def main():
+    # Get current function
+    func = getFunctionContaining(currentAddress)
+    if func is None:
+        print("No function found at the current cursor location.")
+        return
 
-    for i in range(last_json_start, len(text)):
-        if text[i] == '{':
-            open_braces += 1
-        elif text[i] == '}':
-            open_braces -= 1
-            if open_braces == 0:
-                end_pos = i
-                break
+    # Print function name (handling potential encoding issues)
+    try:
+        print("\n--- Analyzing Function: %s ---" % func.getName())
+    except:
+        print("\n--- Analyzing Function (name contains non-ASCII characters) ---")
 
-    if end_pos == -1:
-        raise ValueError("Incomplete JSON object found.")
+    # Decompile the function
+    decompiled_code = decompile_function(func)
+    if not decompiled_code:
+        print("Failed to decompile function.")
+        return
 
-    json_str = text[last_json_start:end_pos + 1]
-    return json_str
+    # Detect algorithm
+    print("Sending request to Zaphod...")
+    result = detect_algorithm(decompiled_code)
+    
+    if result:
+        print("\nResults:")
+        print("Algorithm Detected: %s" % result["algorithm"])
+        print("Confidence: %s" % result["confidence"])
+        print("Notes: %s" % result["notes"])
+        
+        # Add the notes as a comment to the function
+        try:
+            func.setComment(result["notes"])
+            print("\nNotes added as function comment.")
+        except Exception as e:
+            print("Failed to set function comment: %s" % str(e))
+    else:
+        print("Failed to detect algorithm.")
 
-
-# Decompiler setup
-decomp = DecompInterface()
-decomp.openProgram(currentProgram)
-
-func = getFunctionContaining(currentAddress)
-if func is None:
-    print("No function found at the current cursor location.")
-    exit()
-
-func_name = func.getName()
-try:
-    print(u"\n--- Analyzing Function: {} ---".format(func_name))
-except:
-    print("\n--- Analyzing Function (name could not be printed due to encoding) ---")
-
-# Decompile
-res = decomp.decompileFunction(func, 30, monitor)
-if not res.decompileCompleted():
-    print("Failed to decompile {}".format(func_name))
-    exit()
-
-decompiled_code = res.getDecompiledFunction().getC()
-
-try:
-    # Send POST request
-    url = URL(API_URL)
-    conn = url.openConnection()
-    conn.setDoOutput(True)
-    conn.setRequestMethod("POST")
-    conn.setRequestProperty("Content-Type", "application/json")
-
-    payload = json.dumps({
-        "model_name": "default",
-        "function_code": decompiled_code,
-        "max_length": 500
-    })
-
-    writer = OutputStreamWriter(conn.getOutputStream())
-    writer.write(payload)
-    writer.flush()
-    writer.close()
-
-    reader = BufferedReader(InputStreamReader(conn.getInputStream()))
-    response = ""
-    line = reader.readLine()
-    while line:
-        response += line
-        line = reader.readLine()
-    reader.close()
-
-    # Extract and parse JSON
-    json_text = extract_json(response)
-    data = json.loads(json_text)
-
-    algorithm = data.get("algorithm_detected", "unknown")
-    confidence = data.get("confidence", "unknown")
-    notes = data.get("notes", "none")
-
-    print("Algorithm Detected: {}".format(algorithm))
-    print("Confidence: {}".format(confidence))
-    print("Notes: {}".format(notes))
-    func.setComment(notes)
-
-except Exception as e:
-    print("Request failed: {}".format(e))
-    print("Raw server response was:\n{}".format(response))
+if __name__ == '__main__':
+    main()
