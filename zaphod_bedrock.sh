@@ -253,7 +253,7 @@ setup_environment() {
         TMP_REQUIREMENTS=$(mktemp)
         grep -v "^torch==" "$REQUIREMENTS_FILE" > "$TMP_REQUIREMENTS"
         
-        if ! python3 -m pip install -r "$TMP_REQUIREMENTS" --retries 5 --timeout 120 --no-cache-dir; then
+        if ! python3 -m pip install -r "$TMP_REQUIREMENTS" --retries 10 --timeout 120 --no-cache-dir; then
             log_error "Failed to install requirements"
             rm "$TMP_REQUIREMENTS"
             exit 1

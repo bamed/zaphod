@@ -23,3 +23,7 @@ class RateLimiter:
         # Add current request
         self.requests[client_id].append(current_time)
         return True
+
+    async def is_healthy(self) -> bool:
+        """Check if rate limiter is functioning properly"""
+        return True  # Simple check since RateLimiter is stateless

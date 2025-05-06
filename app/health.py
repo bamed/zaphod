@@ -1,6 +1,7 @@
 # Standard library
 from datetime import datetime
 from typing import Dict, Any
+import logging
 
 # Third-party
 from fastapi import APIRouter, Depends
@@ -10,6 +11,9 @@ from pydantic import BaseModel
 from .rate_limiter import RateLimiter
 from .model_registry import ModelRegistry
 from .auth import ApiKeyValidator
+
+# Initialize logger
+logger = logging.getLogger(__name__)
 
 class ComponentHealth(BaseModel):
     status: str

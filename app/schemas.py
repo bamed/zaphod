@@ -1,5 +1,6 @@
 from typing import List, Optional
 from pydantic import BaseModel, conint, confloat, validator
+from .utils.constants import ProviderType
 
 class GenerateRequest(BaseModel):
     prompt: str
@@ -12,13 +13,26 @@ class GenerateRequest(BaseModel):
     def validate_provider(cls, v):
         if v is not None:
             try:
-            # Updated import path
-                from .server import registry  # This imports the instance from server.py
-                if not registry._initialized:
-                    raise RuntimeError("Registry not initialized")
-                valid_providers = registry.providers.keys()
-                if v not in valid_providers:
+                # Instead of checking registry, verify it's a valid provider type
+                if v not in [p.value for p in ProviderType]:
+                    valid_providers = [p.value for p in ProviderType]
                     raise ValueError(f"Invalid provider. Must be one of: {', '.join(valid_providers)}")
             except Exception as e:
-                raise ValueError("Unable to validate provider at this time")
+                raise ValueError(f"Invalid provider: {str(e)}")
         return v
+
+
+class RenameFunctionRequest(BaseModel):
+    model_name: str = "default"
+    function_code: str
+    max_length: conint(gt=0, le=4096) = 20
+
+class AnalyzeFunctionRequest(BaseModel):
+    model_name: str = "default"
+    function_code: str
+    max_length: conint(gt=0, le=4096) = 100
+
+class ChatRequest(BaseModel):
+    model_name: str = "default"
+    prompt: str
+    max_length: conint(gt=0, le=4096) = 1000

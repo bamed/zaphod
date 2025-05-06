@@ -10,11 +10,13 @@ import boto3
 from jsonschema import validate
 from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor
-
-from utils.constants import VERSION, DEFAULT_CONFIG, CONFIG_SCHEMA, ProviderType
-from utils.exceptions import ModelProviderError, ConfigurationError, ValidationError
-from utils.metrics import MetricsCollector
-from utils.logging_config import setup_logging
+import sys
+sys.path.append(os.path.join(os.path.dirname(__file__), 'utils'))
+from .utils.constants import VERSION, DEFAULT_CONFIG, CONFIG_SCHEMA, ProviderType
+from .utils.exceptions import ModelProviderError, ConfigurationError, ValidationError
+from .utils.metrics import MetricsCollector
+from .utils.logging_config import setup_logging
+import asyncio
 
 class RetryDecorator:
     def __init__(self, max_retries: int = 3, base_delay: float = 1.0):
@@ -153,14 +155,27 @@ class ModelRegistry:
         self.logger = setup_logging(DEFAULT_CONFIG['system']['log_level'])
         self.providers: Dict[str, ModelProvider] = {}
         self.executor = ThreadPoolExecutor(max_workers=4)
+        self._initialized = False  # Add initialization flag
 
         try:
             self.config = self._load_config(config_path)
             self._initialize_providers()
             self._start_health_check_thread()
+            self._initialized = True  # Set flag after successful initialization
         except Exception as e:
             self.logger.critical(f"Failed to initialize ModelRegistry: {e}", exc_info=True)
             raise
+
+    async def get_health_status(self) -> Dict[str, bool]:
+        """Get health status of all providers"""
+        status = {}
+        for name, provider in self.providers.items():
+            try:
+                status[name] = provider.is_healthy()
+            except Exception as e:
+                self.logger.error(f"Error checking health for provider {name}: {e}")
+                status[name] = False
+        return status
 
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """Load and validate configuration"""
@@ -278,6 +293,40 @@ class ModelRegistry:
             name: provider.config['models']['available']
             for name, provider in self.providers.items()
         }
+
+    async def generate(
+        self,
+        prompt: str,
+        max_length: int,
+        temperature: Optional[float] = None,
+        provider: Optional[str] = None,
+        **kwargs: Any
+    ) -> Dict[str, Any]:
+        """Generate text using the specified or default provider"""
+        try:
+            # Get the appropriate provider
+            if provider:
+                model_provider = self.get_provider(provider)
+                if not model_provider:
+                    raise ModelProviderError(f"Provider {provider} not found or not enabled")
+            else:
+                model_provider = self.get_default_provider()
+                if not model_provider:
+                    raise ModelProviderError("No default provider available")
+
+            # Generate the text
+            result = model_provider.generate(
+                prompt=prompt,
+                max_tokens=max_length,
+                temperature=temperature,
+                **kwargs
+            )
+
+            return result
+
+        except Exception as e:
+            self.logger.error(f"Generation failed: {str(e)}")
+            raise ModelProviderError(f"Generation failed: {str(e)}")
 
     async def cleanup(self):
         """Proper cleanup of all resources"""

@@ -15,3 +15,5 @@ frida
 boto3
 botocore
 python-dotenv
+jsonschema
+prometheus_client

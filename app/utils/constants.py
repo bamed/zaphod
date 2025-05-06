@@ -21,7 +21,7 @@ DEFAULT_CONFIG: Dict[str, Any] = {
     "system": {
         "log_level": "INFO",
         "max_tokens_default": 512,
-        "default_provider": "vast",
+        "default_provider": "bedrock",
         "request_timeout": 30,
         "max_retries": 3
     },
@@ -72,7 +72,7 @@ CONFIG_SCHEMA = {
             "patternProperties": {
                 "^[a-zA-Z0-9_]+$": {
                     "type": "object",
-                    "required": ["enabled", "models"],
+                    "required": ["enabled", "priority", "models", "config"],
                     "properties": {
                         "enabled": {"type": "boolean"},
                         "priority": {"type": "integer"},

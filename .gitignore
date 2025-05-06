@@ -1,7 +1,30 @@
-*.pyc
+# Environment variables and secrets
+.env
+*.env
+.env.*
 config/config.json
-*config.json
-/app/config/*.json
-*.json
 config/*.json
+!config/sample_config.json
+!config/aws_credentials_config.json
+!config/IAMPolicyConfiguration.json
+
+# Python virtual environment
 .venv/
+venv/
+ENV/
+
+# Logs
+logs/
+*.log
+
+# Cache
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# IDE settings
+.idea/
+.vscode/
+*.swp
+*.swo
