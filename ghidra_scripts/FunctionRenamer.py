@@ -25,35 +25,12 @@ def get_suggested_name(decompiled_code):
             "model_name": "default",
             "function_code": decompiled_code,
             "max_length": 50,
-            "prompt": "Based on this decompiled function code, suggest a clear and descriptive function name that reflects its purpose. Return only the suggested name without explanation."
+            "prompt": "Give only a single valid C function name (no quotes, no explanation) that describes what this function does:\n\n"
         }
         
         response = make_api_request("/rename_function", payload)
         if response and "new_name" in response:
-            # Extract just the function name if it's in quotes or a code-like format
-            suggested_name = response["new_name"]
-            
-            # If response contains multiple words or explanation, try to extract just the name
-            if "`" in suggested_name:
-                # Extract name between backticks
-                name_match = suggested_name.split("`")[1]
-                suggested_name = name_match
-            elif "'" in suggested_name or '"' in suggested_name:
-                # Extract name between quotes
-                import re
-                name_match = re.search(r'[\'\"]([\w_]+)[\'\"]', suggested_name)
-                if name_match:
-                    suggested_name = name_match.group(1)
-            
-            # Ensure name only contains valid characters
-            suggested_name = ''.join(c for c in suggested_name if c.isalnum() or c == '_')
-            
-            # Ensure name starts with a letter or underscore
-            if suggested_name and not suggested_name[0].isalpha() and suggested_name[0] != '_':
-                suggested_name = 'func_' + suggested_name
-                
-            return suggested_name if suggested_name else None
-            
+            return response["new_name"]
         return None
         
     except Exception as e:

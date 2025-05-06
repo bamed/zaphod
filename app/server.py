@@ -167,7 +167,7 @@ async def generate_text(
         raise HTTPException(status_code=500, detail="Internal server error")
 # ... existing imports and setup ...
 
-@app.post("/rename_function")
+@app.post("/rename_function", response_model=RenameFunctionResponse)
 async def rename_function(
     request: RenameFunctionRequest,
     api_key: ApiKey = Depends(verify_api_key)
@@ -177,14 +177,26 @@ async def rename_function(
     
     try:
         result = await registry.generate(
-            prompt=f"Based on this decompiled function code, suggest a clear and descriptive function name:\n\n{request.function_code}",
+            prompt=request.prompt,
             max_length=request.max_length,
             temperature=0.7,
-            provider=request.model_name if request.model_name != "default" else None
+            provider=request.model_name if request.model_name != "default" else None,
+            stop_sequences=["\n", "```"]  # Stop at newlines or code blocks
         )
         
-        new_name = parse_bedrock_response(result).split('\n')[0].strip()
-        return {"new_name": new_name if new_name else "unnamed_function"}
+        new_name = parse_bedrock_response(result)
+        # Clean up the name
+        new_name = new_name.strip().strip('`"\' ')
+        
+        if not new_name or len(new_name) > 50:  # reasonable max length for function name
+            return {"new_name": "unnamed_function"}
+            
+        # Ensure valid function name
+        new_name = ''.join(c for c in new_name if c.isalnum() or c == '_')
+        if not new_name[0].isalpha() and new_name[0] != '_':
+            new_name = 'func_' + new_name
+            
+        return {"new_name": new_name}
 
     except Exception as e:
         logger.error(f"Error processing rename request {request_id}: {str(e)}")
