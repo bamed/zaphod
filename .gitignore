@@ -2,6 +2,7 @@ app/.venv/
 app/*.pid
 app/__pycache__/
 app/.env
+.env
 *.env
 .env.*
 app/config/config.json
