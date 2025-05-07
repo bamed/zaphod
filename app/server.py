@@ -129,11 +129,6 @@ async def log_requests(request: Request, call_next):
         media_type=response.media_type
     )
 
-@app.post("/chat", response_model=ChatResponse)
-@app.post("/analyze", response_model=AnalysisResponse)
-@app.post("/detect_algorithm", response_model=AlgorithmDetectionResponse)
-@app.post("/rename_function", response_model=RenameFunctionResponse)
-@app.post("/generate", response_model=GenerateResponse)
 @app.post("/generate")
 async def generate_text(
     request: GenerateRequest,
@@ -226,23 +221,15 @@ async def rename_function(request: RenameFunctionRequest, api_key: ApiKey = Depe
     logger.info(f"Processing rename request {request_id}")
     
     try:
-        # Create prompt for function renaming
-        prompt = (
-            "Analyze this decompiled function and suggest a clear, descriptive name that reflects its purpose.\n"
-            "The name must be a valid C function name (alphanumeric and underscores only, cannot start with a number).\n"
-            "Return only the name, no explanation.\n\n"
-            f"Function code:\n{request.function_code}"
-        )
+        prompt = "Based on this decompiled function code, suggest a clear and descriptive function name that reflects its purpose. Return only the suggested name without explanation.\n\n" + request.function_code
         
         result = await registry.generate(
             prompt=prompt,
-            max_length=50,  # Keep names reasonably short
+            max_length=request.max_length,
             temperature=0.7,
             provider=request.model_name if request.model_name != "default" else None
         )
-        
         return parse_rename_response(result)
-
     except Exception as e:
         logger.error(f"Error processing rename request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -254,8 +241,7 @@ async def analyze_function(request: AnalyzeFunctionRequest, api_key: ApiKey = De
     
     try:
         prompt = (
-            "Analyze this decompiled function and provide a concise summary of its functionality.\n"
-            "Focus on what the function does, its inputs/outputs, and any notable algorithms or patterns.\n\n"
+            "Analyze this decompiled function and provide a concise summary of its functionality:\n\n"
             f"Function code:\n{request.function_code}"
         )
         
@@ -268,7 +254,6 @@ async def analyze_function(request: AnalyzeFunctionRequest, api_key: ApiKey = De
         
         summary = parse_bedrock_response(result)
         return {"summary": summary if summary else "No summary available"}
-
     except Exception as e:
         logger.error(f"Error processing analysis request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -280,8 +265,7 @@ async def chat(request: ChatRequest, api_key: ApiKey = Depends(verify_api_key)):
     
     try:
         prompt = (
-            f"Answer the following question about this decompiled function:\n"
-            f"Question: {request.user_question}\n\n"
+            f"Question about this decompiled function: {request.user_question}\n\n"
             f"Function code:\n{request.function_code}"
         )
         
@@ -292,8 +276,8 @@ async def chat(request: ChatRequest, api_key: ApiKey = Depends(verify_api_key)):
             provider=request.model_name if request.model_name != "default" else None
         )
         
-        return {"response": parse_bedrock_response(result)}
-
+        response = parse_bedrock_response(result)
+        return {"response": response if response else "No response available"}
     except Exception as e:
         logger.error(f"Error processing chat request {request_id}: {str(e)}")
         raise HTTPException(status_code=500, detail="Internal server error")
@@ -305,11 +289,11 @@ async def detect_algorithm(request: AlgorithmDetectionRequest, api_key: ApiKey =
     
     try:
         prompt = (
-            "Analyze this decompiled function and identify any known algorithms or patterns.\n"
-            "Provide your response in this format:\n"
-            "Algorithm: [name of algorithm]\n"
+            "Identify the algorithm implemented in this decompiled function.\n"
+            "Format your response as follows:\n"
+            "Algorithm: [name]\n"
             "Confidence: [high/medium/low]\n"
-            "Notes: [detailed explanation]\n\n"
+            "Notes: [brief explanation]\n\n"
             f"Function code:\n{request.function_code}"
         )
         
@@ -319,6 +303,34 @@ async def detect_algorithm(request: AlgorithmDetectionRequest, api_key: ApiKey =
             temperature=0.7,
             provider=request.model_name if request.model_name != "default" else None
         )
-
-        response = parse_algorithm_response(result)
-        return response
+        
+        text = parse_bedrock_response(result)
+        if not text:
+            return {
+                "algorithm_detected": "unknown",
+                "confidence": "low",
+                "notes": "Failed to analyze algorithm"
+            }
+            
+        # Parse the response format
+        algorithm = "unknown"
+        confidence = "low"
+        notes = text
+        
+        lines = text.split('\n')
+        for line in lines:
+            if line.startswith("Algorithm:"):
+                algorithm = line.replace("Algorithm:", "").strip()
+            elif line.startswith("Confidence:"):
+                confidence = line.replace("Confidence:", "").strip().lower()
+            elif line.startswith("Notes:"):
+                notes = line.replace("Notes:", "").strip()
+                
+        return {
+            "algorithm_detected": algorithm,
+            "confidence": confidence,
+            "notes": notes
+        }
+    except Exception as e:
+        logger.error(f"Error processing algorithm detection request {request_id}: {str(e)}")
+        raise HTTPException(status_code=500, detail="Internal server error")
